@@ -24,6 +24,7 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include "icp/icp.h"
 #include "util/logging.h"
 #include "util/stat.h"
+#include "util/proof.h"
 
 namespace dreal {
 
@@ -68,14 +69,17 @@ box naive_icp::solve(box b, contractor const & ctc, SMTConfig & config) {
                 if (second.is_bisectable()) {
                     box_stack.push_back(second);
                     box_stack.push_back(first);
+                    if (config.nra_proof) {
+                        output_split_step(config.nra_proof_out, b, first, second,
+                                          config.nra_readable_proof, i);
+                    }
                 } else {
                     box_stack.push_back(first);
                     box_stack.push_back(second);
-                }
-                if (config.nra_proof) {
-                    config.nra_proof_out << "[branched on "
-                                         << b.get_name(i)
-                                         << "]" << endl;
+                    if (config.nra_proof) {
+                        output_split_step(config.nra_proof_out, b, second, first,
+                                          config.nra_readable_proof, i);
+                    }
                 }
             } else {
                 if (config.nra_found_soln >= config.nra_multiple_soln) {
@@ -192,14 +196,17 @@ box random_icp::solve(box b, contractor const & ctc, SMTConfig & config ) {
                 if (random_bool()) {
                     box_stack.push_back(second);
                     box_stack.push_back(first);
+                    if (config.nra_proof) {
+                        output_split_step(config.nra_proof_out, b, first, second,
+                                          config.nra_readable_proof, i);
+                    }
                 } else {
                     box_stack.push_back(first);
                     box_stack.push_back(second);
-                }
-                if (config.nra_proof) {
-                    config.nra_proof_out << "[branched on "
-                                         << b.get_name(i)
-                                         << "]" << endl;
+                    if (config.nra_proof) {
+                        output_split_step(config.nra_proof_out, b, second, first,
+                                          config.nra_readable_proof, i);
+                    }
                 }
             } else {
                 if (config.nra_found_soln >= config.nra_multiple_soln) {

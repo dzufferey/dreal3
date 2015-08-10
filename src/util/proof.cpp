@@ -21,6 +21,7 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 
 #include "util/proof.h"
 #include <string>
+#include "util/hexfloat.h"
 
 namespace dreal {
 using std::string;
@@ -28,6 +29,7 @@ void output_pruning_step(ostream & out, box const & old_box, box const & new_box
     if (old_box != new_box) {
         out << "[before pruning]" << endl;
         dreal::display(out, old_box, !readable_proof);
+        out.put(out.widen('\n')); //avoid flushing
         if (new_box.is_empty()) {
             out << "[conflict detected]";
         } else {
@@ -36,10 +38,46 @@ void output_pruning_step(ostream & out, box const & old_box, box const & new_box
         if (constraint.length() > 0) {
             out << " by " << constraint;
         }
-        out << endl;
         if (!new_box.is_empty()) {
+            out.put(out.widen('\n')); //avoid flushing
             dreal::display(out, new_box, !readable_proof);
         }
+        out << endl; //flush here
     }
 }
+
+
+void output_split_step(std::ostream & out, box const & old_box,
+                       box const & first_box, box const & second_box,
+                       bool const readable_proof, int variable) {
+  //determine where the split happens and the direction
+  auto const fst_value = first_box.get_value(variable);
+  auto const snd_value = second_box.get_value(variable);
+  double split;
+  bool gt;
+  if (fst_value.ub() <= snd_value.lb() ) {
+    assert( fst_value.lb < snd_value.ub() );
+    split = fst_value.ub();
+    gt = false;
+  } else {
+    assert( snd_value.lb < fst_value.ub() );
+    split = fst_value.lb();
+    gt = true;
+  }
+  //printing
+  out << "[branching] on (";
+  if (gt) {
+    out << ">= ";
+  } else {
+    out << "<= ";
+  }
+  out << old_box.get_name(variable) << " ";
+  if (readable_proof) {
+    out << split;
+  } else {
+    out << to_hexfloat(split);
+  }
+  out << ")" << endl;
+}
+
 }  // namespace dreal
