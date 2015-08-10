@@ -27,4 +27,5 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 
 namespace dreal {
 void output_pruning_step(std::ostream & out, box const & old_box, box const & new_box, bool const readable_proof, std::string const & constraint);
+void output_split_step(std::ostream & out, box const & old_box, box const & first_box, box const & second_box, bool const readable_proof, int variable);
 }  // namespace dreal

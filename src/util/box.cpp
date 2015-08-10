@@ -167,7 +167,8 @@ ostream& display(ostream& out, box const & b, bool const exact, bool const old_s
         unsigned const s = b.size();
         for (unsigned i = 0; i < s; i++) {
             if (i != 0) {
-                out << endl;
+                //out << endl;
+                out.put(out.widen('\n')); //avoid flushing
             }
             Enode * e = b.m_vars[i];
             string const & name = e->getCar()->getName();
@@ -181,7 +182,8 @@ ostream& display(ostream& out, box const & b, bool const exact, bool const old_s
         unsigned const s = b.size();
         for (unsigned i = 0; i < s; i++) {
             if (i != 0) {
-                out << endl;
+                //out << endl;
+                out.put(out.widen('\n')); //avoid flushing
             }
             Enode * e = b.m_vars[i];
             ibex::Interval const & v = b.m_values[i];
