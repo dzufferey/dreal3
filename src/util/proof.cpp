@@ -24,13 +24,22 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include "util/hexfloat.h"
 
 namespace dreal {
+
 using std::string;
+
+void output_start(ostream & out, box const & domain, bool const readable_proof) {
+    out << "[domain]" << endl;
+    dreal::display(out, domain, !readable_proof);
+    out.put(out.widen('\n')); //avoid flushing
+}
+
 void output_pruning_step(ostream & out, box const & old_box, box const & new_box, bool const readable_proof, string const & constraint) {
     if (old_box != new_box) {
-        out << "[before pruning]" << endl;
-        dreal::display(out, old_box, !readable_proof);
-        out.put(out.widen('\n')); //avoid flushing
-        if (new_box.is_empty()) {
+        //out << "[before pruning]" << endl;
+        //dreal::display(out, old_box, !readable_proof);
+        //out.put(out.widen('\n')); //avoid flushing
+        bool empty = new_box.is_empty();
+        if (empty) {
             out << "[conflict detected]";
         } else {
             out << "[after pruning]";
@@ -38,11 +47,12 @@ void output_pruning_step(ostream & out, box const & old_box, box const & new_box
         if (constraint.length() > 0) {
             out << " by " << constraint;
         }
-        if (!new_box.is_empty()) {
+        if (!empty) {
             out.put(out.widen('\n')); //avoid flushing
             dreal::display(out, new_box, !readable_proof);
         }
-        out << endl; //flush here
+        out.put(out.widen('\n')); //avoid flushing
+        //out << endl; //flush here
     }
 }
 
@@ -77,7 +87,9 @@ void output_split_step(std::ostream & out, box const & old_box,
   } else {
     out << to_hexfloat(split);
   }
-  out << ")" << endl;
+  out << ")";
+  out.put(out.widen('\n')); //avoid flushing
+  //out << endl;
 }
 
 }  // namespace dreal
