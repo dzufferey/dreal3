@@ -137,9 +137,17 @@ box ncbt_icp::solve(box b, contractor const & ctc, SMTConfig & config) {
                 if (second.is_bisectable()) {
                     box_stack.push_back(second);
                     box_stack.push_back(first);
+                    if (config.nra_proof) {
+                        output_split_step(config.nra_proof_out, b, first, second,
+                                          config.nra_readable_proof, index);
+                    }
                 } else {
                     box_stack.push_back(first);
                     box_stack.push_back(second);
+                    if (config.nra_proof) {
+                        output_split_step(config.nra_proof_out, b, second, first,
+                                          config.nra_readable_proof, index);
+                    }
                 }
                 bisect_var_stack.push_back(index);
                 bisect_var_stack.push_back(index);

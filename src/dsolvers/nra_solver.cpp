@@ -41,6 +41,7 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include "icp/icp.h"
 #include "util/stat.h"
 #include "json/json.hpp"
+#include "util/proof.h"
 
 using ibex::IntervalVector;
 using nlohmann::json;
@@ -224,6 +225,9 @@ std::vector<constraint *> nra_solver::initialize_constraints() {
         ctrs.push_back(oc);
         m_ctr_map.emplace(make_pair(ic.get_enode(), true), oc);
         DREAL_LOG_INFO << "nra_solver::initialize_constraints: collect ODEConstraint: " << *oc;
+    }
+    if (config.nra_proof) {
+         output_start(config.nra_proof_out, m_box, config.nra_readable_proof);
     }
     return ctrs;
 }
