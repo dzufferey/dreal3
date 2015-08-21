@@ -22,16 +22,18 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #pragma once
 #include <iostream>
 #include <chrono>
+#include <atomic>
+#include <cstdint>
 namespace dreal {
 class stat {
+    std::atomic<std::uint_fast64_t> m_num_of_incomplete_check;
+    std::atomic<std::uint_fast64_t> m_num_of_complete_check;
+    std::atomic<std::uint_fast64_t> m_num_of_assert;
+    std::atomic<std::uint_fast64_t> m_num_of_push;
+    std::atomic<std::uint_fast64_t> m_num_of_pop;
+    std::atomic<std::uint_fast64_t> m_num_of_branch;
+    std::atomic<std::uint_fast64_t> m_num_of_prune;
 public:
-    unsigned m_num_of_incomplete_check;
-    unsigned m_num_of_complete_check;
-    unsigned m_num_of_assert;
-    unsigned m_num_of_push;
-    unsigned m_num_of_pop;
-    unsigned m_num_of_branch;
-    unsigned m_num_of_prune;
     std::chrono::time_point<std::chrono::high_resolution_clock> m_start_time;
     stat();
     void reset();
