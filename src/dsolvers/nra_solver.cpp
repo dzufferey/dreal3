@@ -435,6 +435,8 @@ bool nra_solver::check(bool complete) {
         // Complete Check ==> Run ICP
         if (config.nra_ncbt) {
             m_box = ncbt_icp::solve(m_box, m_ctc, config);
+        } else if (config.nra_parallel) {
+            m_box = parallel_icp::solve(m_box, m_ctc, config);
         } else {
             m_box = naive_icp::solve(m_box, m_ctc, config);
         }

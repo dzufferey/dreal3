@@ -17,9 +17,10 @@ You should have received a copy of the GNU General Public License
 along with dReal. If not, see <http://www.gnu.org/licenses/>.
 *********************************************************************/
 
+#include <vector>
 #include <tuple>
 #include <random>
-#include <vector>
+#include <thread>
 
 #include "icp/icp.h"
 #include "util/logging.h"
@@ -235,4 +236,130 @@ box random_icp::solve(box b, contractor const & ctc, SMTConfig & config ) {
         return b;
     }
 }
+
+//TODO print proof
+void parallel_icp::worker(int tid) {
+    //cerr << "worker starting" << endl;
+    std::unique_lock<std::mutex> l(lock); //this acquires l
+    while (true) {
+        if (!found_solution && working > 1 && box_stack.empty()) {
+            working -= 1;
+            //cerr << tid << " waiting" << endl;
+            cv.wait(l, [this]{return found_solution || working == 0 || !box_stack.empty();});
+            working += 1;
+            //cerr << tid << " woke up" << endl;
+        }
+        if (found_solution || box_stack.empty()) { 
+            //someone has a solution or there is no more work to do
+            working -= 1;
+            //cerr << tid << " worker done" << endl;
+            //cerr << tid << " found_solution = " << found_solution << endl;
+            //cerr << tid << " working        = " << working << endl;
+            //cerr << tid << " box_stack.size = " << box_stack.size() << endl;
+            l.unlock();
+            cv.notify_all();
+            break;
+        } else {
+            //fetch some work
+            tuple<unsigned, box> branch = box_stack.top();
+            box_stack.pop();
+            l.unlock();
+
+            unsigned id = get<0>(branch);
+            box b = get<1>(branch);
+            //cerr << tid << " working on branch: " << id << ", stack: " << box_stack.size() << endl;
+            assert(!b.is_empty());
+
+            while (!b.is_empty()) {
+
+                //prune
+                try {
+                    if (config.nra_use_stat) { config.nra_stat.increase_prune(); }
+                    b = ctc.prune(b, config);
+                } catch (contractor_exception & e) {
+                    // Do nothing
+                }
+
+                if (!b.is_empty()) {
+                    // split
+                    if (config.nra_use_stat) { config.nra_stat.increase_branch(); }
+                    tuple<int, box, box> splits = b.bisect(config.nra_precision);
+                    int const i = get<0>(splits);
+                    if (i >= 0) {
+                        //push one branch on the stack and continue with the other
+                        b = get<1>(splits);
+                        box const & other_branch = get<2>(splits);
+                        l.lock();
+                        branches += 1;
+                        //cerr << tid << " new branch " << branches << endl;
+                        box_stack.push(tuple<unsigned,box>(branches,other_branch));
+                        l.unlock();
+                        cv.notify_all();
+                    } else {
+                        //we have a solution
+                        //cerr << tid << " found a solution" << endl;
+                        l.lock();
+                        solutions.push(b);
+                        if (solutions.size() >= config.nra_multiple_soln) {
+                            found_solution = true;
+                        }
+                        //we keep the lock as we are exiting the inner loop
+                        break;
+                    }
+                } else {
+                    l.lock();
+                    //cerr << tid << " branch " << id << " done" << endl;
+                }
+
+            }
+
+        }
+    }
+    //l.lock();
+    //cerr << tid << " exiting" << endl;
+    //l.unlock();
+}
+
+box parallel_icp::solve(box b, contractor const & ctc, SMTConfig & config) {
+    int nbr_workers = std::thread::hardware_concurrency();
+    if (nbr_workers == 0) {
+        return naive_icp::solve(b, ctc, config);
+    } else {
+        parallel_icp p_icp(ctc, config);
+        p_icp.working = nbr_workers;
+        std::unique_lock<std::mutex> l(p_icp.lock); //this acquires l
+        //push the initial box
+        //cerr << "1" << endl;
+        p_icp.box_stack.push(tuple<unsigned,box>(0,b));
+        //cerr << "2" << endl;
+        //create the workers
+        std::thread workers[nbr_workers];
+        for (int i = 0; i < nbr_workers; i++) {
+             workers[i] = std::thread([&p_icp,i] { p_icp.worker(i); });
+        }
+        //cerr << "3" << endl;
+        p_icp.cv.wait(l, [&p_icp]{return p_icp.found_solution || (p_icp.working == 0 && p_icp.box_stack.empty());});
+        l.unlock();
+        for (int i = 0; i < nbr_workers; i++) {
+             //cerr << "joining " << i << endl;
+             workers[i].join();
+        }
+        //cerr << "4" << endl;
+        //check if there is a solution
+        if (p_icp.found_solution) {
+            //cerr << "5" << endl;
+            box sol = p_icp.solutions.top();
+            //cerr << "6" << endl;
+            sol.set_bounds(b.get_values());
+            //cerr << "7" << endl;
+            return sol;
+        } else {
+            //cerr << "8" << endl;
+            b.set_empty();
+            //cerr << "9" << endl;
+            return b;
+        }
+    }
+}
+
 }  // namespace dreal

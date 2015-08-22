@@ -29,46 +29,48 @@ using std::endl;
 
 namespace dreal {
 
+const std::memory_order order = std::memory_order_relaxed;
+
 stat::stat() : m_start_time(std::chrono::high_resolution_clock::now()) {
     reset();
 }
 
 void stat::increase_check(bool complete) {
     if (complete) {
-        m_num_of_complete_check.fetch_add(1, std::memory_order_relaxed);
+        m_num_of_complete_check.fetch_add(1, order);
     } else {
-        m_num_of_incomplete_check.fetch_add(1, std::memory_order_relaxed);
+        m_num_of_incomplete_check.fetch_add(1, order);
     }
 }
 
 void stat::increase_assert() {
-    m_num_of_assert.fetch_add(1, std::memory_order_relaxed);
+    m_num_of_assert.fetch_add(1, order);
 }
 
 void stat::increase_push() {
-    m_num_of_push.fetch_add(1, std::memory_order_relaxed);
+    m_num_of_push.fetch_add(1, order);
 }
 
 void stat::increase_pop() {
-    m_num_of_pop.fetch_add(1, std::memory_order_relaxed);
+    m_num_of_pop.fetch_add(1, order);
 }
 
 void stat::increase_branch() {
-    m_num_of_branch.fetch_add(1, std::memory_order_relaxed);
+    m_num_of_branch.fetch_add(1, order);
 }
 
 void stat::increase_prune() {
-    m_num_of_prune.fetch_add(1, std::memory_order_relaxed);
+    m_num_of_prune.fetch_add(1, order);
 }
 
 void stat::reset() {
-    m_num_of_complete_check.store(0, std::memory_order_relaxed);
-    m_num_of_incomplete_check.store(0, std::memory_order_relaxed);
-    m_num_of_assert.store(0, std::memory_order_relaxed);
-    m_num_of_push.store(0, std::memory_order_relaxed);
-    m_num_of_pop.store(0, std::memory_order_relaxed);
-    m_num_of_branch.store(0, std::memory_order_relaxed);
-    m_num_of_prune.store(0, std::memory_order_relaxed);
+    m_num_of_complete_check.store(0, order);
+    m_num_of_incomplete_check.store(0, order);
+    m_num_of_assert.store(0, order);
+    m_num_of_push.store(0, order);
+    m_num_of_pop.store(0, order);
+    m_num_of_branch.store(0, order);
+    m_num_of_prune.store(0, order);
 }
 
 ostream & operator<<(ostream & out, stat const & stat) {

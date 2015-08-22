@@ -126,6 +126,7 @@ SMTConfig::initializeConfig( )
   nra_simp                     = true;
   nra_ncbt                     = false;
   nra_worklist_fp              = false;
+  nra_parallel                 = false;
   initLogging();
 }
 
@@ -454,6 +455,9 @@ SMTConfig::parseCMDLine( int argc
     opt.add("", false, 0, 0,
             "read formula from standard input",
             "--in");
+    opt.add("", false, 0, 0,
+            "explore branches in parallel in the ICP loop",
+            "--parallel");
 
     opt.parse(argc, argv);
     opt.overview  = "dReal ";
@@ -495,6 +499,7 @@ SMTConfig::parseCMDLine( int argc
     nra_simp                = !opt.isSet("--no-simp");
     nra_ncbt                = opt.isSet("--ncbt");
     nra_worklist_fp         = opt.isSet("--worklist-fp");
+    nra_parallel            = opt.isSet("--parallel");
 
     // Extract Double Args
     if (opt.isSet("--precision")) { opt.get("--precision")->getDouble(nra_precision); }

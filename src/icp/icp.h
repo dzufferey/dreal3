@@ -19,6 +19,9 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 
 #pragma once
 
+#include <stack>
+#include <mutex>
+#include <condition_variable>
 #include "util/box.h"
 #include "util/stat.h"
 #include "contractor/contractor.h"
@@ -42,6 +45,27 @@ private:
     static bool random_bool();
 
 public:
+    static box solve(box b, contractor const & ctc, SMTConfig & config);
+};
+
+class parallel_icp {
+
+    contractor const & ctc;
+    SMTConfig & config;
+
+    std::mutex lock;
+    std::condition_variable cv;
+
+    unsigned branches = 0;
+    int working = 0;
+    bool found_solution = false;
+    stack<box> solutions;
+    stack<tuple<unsigned,box>> box_stack;
+    
+    void worker(int i); //TODO i for debugging
+
+public:
+    parallel_icp(contractor const & c, SMTConfig & cfg): ctc(c), config(cfg) { }
     static box solve(box b, contractor const & ctc, SMTConfig & config);
 };
 

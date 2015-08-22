@@ -208,6 +208,7 @@ struct SMTConfig
   bool         nra_simp;                      // use simplification in preprocessing
   bool         nra_ncbt;                      // use nonchronological backtracking in icp
   bool         nra_worklist_fp;               // use worklist fixpoint algorithm
+  bool         nra_parallel;                  // explore branches in parallel in icp
 
 private:
 
