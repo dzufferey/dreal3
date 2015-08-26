@@ -142,6 +142,7 @@ public:
     ode_constraint(integral_constraint const & integral, std::vector<forallt_constraint> const & invs);
     inline integral_constraint const & get_ic() const { return m_int; }
     inline std::vector<forallt_constraint> const & get_invs() const { return m_invs; }
+    inline Enode * get_enode() const { return get_enodes()[0]; }
     virtual std::ostream & display(std::ostream & out) const;
 };
 
