@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 2.8.7)
 project(DREAL C CXX)
 set(DREAL_VERSION_MAJOR 3)
 set(DREAL_VERSION_MINOR 15)
-set(DREAL_VERSION_PATCH 08)
+set(DREAL_VERSION_PATCH 08.01)
 set(PACKAGE_NAME dReal)
 set(PACKAGE_VERSION "${DREAL_VERSION_MAJOR}.${DREAL_VERSION_MINOR}.${DREAL_VERSION_PATCH}")
 set(PACKAGE_STRING "${PACKAGE_NAME} ${PACKAGE_VERSION}")
@@ -203,6 +203,21 @@ ExternalProject_Add(FILIB
   BUILD_IN_SOURCE 1
   INSTALL_COMMAND make -j install)
 set(EXTRA_LIBS "prim" ${EXTRA_LIBS})
+
+################################################################
+# External: NLOPT
+################################################################
+ExternalProject_Add(NLOPT
+  PREFIX ${CMAKE_CURRENT_BINARY_DIR}/external
+  GIT_REPOSITORY https://github.com/dreal-deps/nlopt.git
+  GIT_TAG master
+  UPDATE_COMMAND ${GIT_EXECUTABLE} fetch --all
+         COMMAND ${GIT_EXECUTABLE} reset --hard origin/master
+  CONFIGURE_COMMAND autoreconf --install > /dev/null 2>&1 || autoreconf && ./configure CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} "CXXFLAGS=${EXTERNAL_CXX_FLAGS} -w" "LDFLAGS=${EXTERNAL_LD_FLAGS}" --prefix=${CMAKE_CURRENT_BINARY_DIR} ${SHARED_LIB_CONFIG_COMMAND} --without-guile --without-python --without-octave --without-matlab
+  BUILD_COMMAND make -j
+  BUILD_IN_SOURCE 1
+  INSTALL_COMMAND make -j install)
+set(EXTRA_LIBS "nlopt" ${EXTRA_LIBS})
 
 if(SUPPORT_ODE)
   ################################################################
@@ -443,10 +458,12 @@ endif()
 
 add_dependencies(dop PEGTL)
 add_dependencies(dop IBEX)
+add_dependencies(dop NLOPT)
 add_dependencies(dop EASYLOGGINGPP)
 add_dependencies(dop EZOPTIONPARSER)
 add_dependencies(dop JSON)
 add_dependencies(dreal IBEX)
+add_dependencies(dreal NLOPT)
 add_dependencies(dreal EASYLOGGINGPP)
 add_dependencies(dreal EZOPTIONPARSER)
 add_dependencies(dreal JSON)
@@ -475,6 +492,7 @@ add_subdirectory(tests/util)
 add_subdirectory(tests/nra)
 add_subdirectory(tests/c_api)
 add_subdirectory(tests/ibex)
+add_subdirectory(tests/nlopt)
 add_subdirectory(tests/contractor)
 if(SUPPORT_ODE)
   add_subdirectory(tests/capd4)
@@ -552,15 +570,15 @@ endif()
 if(APPLE AND BUILD_SHARED_LIB)
   add_custom_target(shared_lib
     COMMAND echo "Building Shared Library..."
-    COMMAND cd lib && ${CMAKE_CXX_COMPILER} -fpic -shared -Wl,-all_load libdreal.a libcapd.a libibex.a libprim.a libClp.a libClpSolver.a libCoinUtils.a -o libdreal.dylib
-    DEPENDS dreal CAPD4 IBEX FILIB CLP
+    COMMAND cd lib && ${CMAKE_CXX_COMPILER} -fpic -shared -Wl,-all_load libdreal.a libcapd.a libibex.a libnlopt.a libprim.a libClp.a libClpSolver.a libCoinUtils.a -o libdreal.dylib
+    DEPENDS dreal CAPD4 IBEX FILIB CLP NLOPT
   )
 endif()
 
 add_custom_target(update_pkgs
   COMMAND echo "Update External Packages"
   COMMAND ${CMAKE_BUILD_TOOL}
-  DEPENDS update_clp update_filib update_ibex update_capd update_catch update_pegtl update_easyloggingpp update_ezoptionparser update_json)
+  DEPENDS update_clp update_filib update_ibex update_nlopt update_capd update_catch update_pegtl update_easyloggingpp update_ezoptionparser update_json)
 
 add_custom_target(update_clp
   COMMAND git fetch --all && git reset --hard origin/master && make install -j
@@ -574,6 +592,10 @@ add_custom_target(update_ibex
   COMMAND git fetch --all && git reset --hard origin/master && ./waf install
   WORKING_DIRECTORY ${DREAL_BINARY_DIR}/external/src/IBEX
   DEPENDS update_filib update_clp)
+
+add_custom_target(update_nlopt
+  COMMAND git fetch --all && git reset --hard origin/master && make install -j
+  WORKING_DIRECTORY ${DREAL_BINARY_DIR}/external/src/NLOPT)
 
 add_custom_target(update_capd
   COMMAND git fetch --all && git reset --hard origin/master && make install -j

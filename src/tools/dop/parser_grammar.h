@@ -39,7 +39,7 @@ struct str_prec : pegtl::string<'p', 'r', 'e', 'c'> {};
 struct str_var : pegtl::string<'v', 'a', 'r'> {};
 struct str_cost : pegtl::string<'c', 'o', 's', 't'> {};
 struct str_ctr : pegtl::string<'c', 't', 'r'> {};
-struct eq : pegtl::string<'=', '='> {};
+struct eq : pegtl::string<'='> {};
 struct neq : pegtl::string<'!', '='> {};
 struct le : pegtl::string<'<', '='> {};
 struct ge : pegtl::string<'>', '='> {};
@@ -157,8 +157,8 @@ struct ctr_decl_sec  : pegtl::seq<str_ctr, colon, seps, ctr_decl_list> {};
 
 // grammar
 struct grammar : pegtl::must<pegtl::opt<prec_sec>, seps,
-                             var_decl_sec, seps,
-                             cost_decl_sec, seps,
+                             pegtl::must<var_decl_sec>, seps,
+                             pegtl::must<cost_decl_sec>, seps,
                              pegtl::opt<pegtl::seq<ctr_decl_sec, seps>>,
                              pegtl::eof> {};
 
