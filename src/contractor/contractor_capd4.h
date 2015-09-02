@@ -28,7 +28,8 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include <memory>
 #include <utility>
 #include "opensmt/egraph/Enode.h"
-#include "util/box.h"
+#include "util/box.h" 
+#include "util/fbbox.h"
 #include "json/json.hpp"
 #include "capd/capdlib.h"
 #include "contractor/contractor_basic.h"
@@ -41,6 +42,7 @@ private:
 public:
     contractor_capd_fwd_simple(box const & box, ode_constraint const * const ctr);
     box prune(box b, SMTConfig & config) const;
+    void prune(fbbox & b, SMTConfig & config) const;
     std::ostream & display(std::ostream & out) const;
 };
 
@@ -59,6 +61,7 @@ public:
     contractor_capd_fwd_full(box const & box, ode_constraint const * const ctr, unsigned const taylor_order, unsigned const grid_size);
     ~contractor_capd_fwd_full();
     box prune(box b, SMTConfig & config) const;
+    void prune(fbbox & b, SMTConfig & config) const;
     nlohmann::json generate_trace(box b, SMTConfig & config) const;
     std::ostream & display(std::ostream & out) const;
 };
@@ -70,6 +73,7 @@ private:
 public:
     contractor_capd_bwd_simple(box const & box, ode_constraint const * const ctr);
     box prune(box b, SMTConfig & config) const;
+    void prune(fbbox & b, SMTConfig & config) const;
     std::ostream & display(std::ostream & out) const;
 };
 
@@ -87,6 +91,7 @@ public:
     contractor_capd_bwd_full(box const & box, ode_constraint const * const ctr, unsigned const taylor_order, unsigned const grid_size);
     ~contractor_capd_bwd_full();
     box prune(box b, SMTConfig & config) const;
+    void prune(fbbox & b, SMTConfig & config) const;
     std::ostream & display(std::ostream & out) const;
 };
 contractor mk_contractor_capd_fwd_simple(box const & box, ode_constraint const * const ctr, unsigned const taylor_order = 20, unsigned const grid_size = 16);

@@ -316,6 +316,11 @@ box contractor_capd_fwd_simple::prune(box b, SMTConfig &) const {
     // TODO(soonhok): implement this
     return b;
 }
+
+void contractor_capd_fwd_simple::prune(fbbox & b, SMTConfig &) const {
+    assert(false);
+}
+
 // ode_solver::ODE_result ode_solver::simple_ODE_forward(IVector const & X_0, IVector & X_t, interval const & T,
 //                                                       IVector const & inv, vector<IFunction> & funcs) {
 //     bool prune_params_result = prune_params();
@@ -577,6 +582,10 @@ box contractor_capd_fwd_full::prune(box b, SMTConfig & config) const {
     return b;
 }
 
+void contractor_capd_fwd_full::prune(fbbox & b, SMTConfig & config) const {
+    assert(false); //TODO
+}
+
 unsigned int extract_step(string const & name) {
     // We assume that the following convention holds for naming a ODE
     // variable.
@@ -689,6 +698,11 @@ box contractor_capd_bwd_simple::prune(box b, SMTConfig &) const {
     // TODO(soonhok): implement this
     return b;
 }
+
+void contractor_capd_bwd_simple::prune(fbbox & b, SMTConfig &) const {
+    assert(false); //TODO
+}
+
 ostream & contractor_capd_bwd_simple::display(ostream & out) const {
     // TODO(soonhok): implement this
     return out;
@@ -813,6 +827,11 @@ box contractor_capd_bwd_full::prune(box b, SMTConfig & config) const {
 
     return b;
 }
+
+void contractor_capd_bwd_full::prune(fbbox & b, SMTConfig & config) const {
+    assert(false); //TODO
+}
+
 ostream & contractor_capd_bwd_full::display(ostream & out) const {
     out << "contractor_capd_bwd(" << *m_ctr << ")";
     return out;

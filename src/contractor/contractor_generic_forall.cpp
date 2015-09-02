@@ -239,6 +239,10 @@ box contractor_generic_forall::prune(box b, SMTConfig & config) const {
     return handle(b, forall_vars, body, true, config);
 }
 
+void contractor_generic_forall::prune(fbbox & b, SMTConfig & config) const {
+    assert(false); //TODO
+}
+
 ostream & contractor_generic_forall::display(ostream & out) const {
     out << "contractor_generic_forall(" << *m_ctr << ")";
     return out;

@@ -39,5 +39,5 @@ if [ ! -d build ]; then
 fi
 cd build
 cmake -DCMAKE_CXX_COMPILER=$CXX -DCMAKE_C_COMPILER=$CC -DCMAKE_BUILD_TYPE=RELEASE ../src
-make -j 2
+make -j 4
 cd ../

@@ -31,6 +31,7 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include "opensmt/egraph/Enode.h"
 #include "opensmt/smtsolvers/SMTConfig.h"
 #include "util/box.h"
+#include "util/fbbox.h"
 #include "constraint/constraint.h"
 #include "contractor/contractor.h"
 
@@ -42,6 +43,7 @@ private:
 public:
     contractor_forall(box const & b, forall_constraint const * const ctr);
     box prune(box b, SMTConfig & config) const;
+    void prune(fbbox & b, SMTConfig & config) const;
     std::ostream & display(std::ostream & out) const;
 };
 contractor mk_contractor_forall(box const & box, forall_constraint const * const ctr);

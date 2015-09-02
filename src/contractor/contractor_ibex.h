@@ -29,6 +29,7 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include <utility>
 #include "opensmt/egraph/Enode.h"
 #include "util/box.h"
+#include "util/fbbox.h"
 #include "constraint/constraint.h"
 #include "contractor/contractor_basic.h"
 
@@ -45,6 +46,7 @@ public:
     contractor_ibex_fwdbwd(box const & box, nonlinear_constraint const * const ctr);
     ~contractor_ibex_fwdbwd();
     box prune(box b, SMTConfig & config) const;
+    void prune(fbbox & b, SMTConfig & config) const;
     std::ostream & display(std::ostream & out) const;
 };
 
@@ -71,6 +73,7 @@ public:
     contractor_ibex_polytope(double const prec, std::vector<Enode *> const & vars, std::vector<nonlinear_constraint const *> const & ctrs);
     ~contractor_ibex_polytope();
     box prune(box b, SMTConfig & config) const;
+    void prune(fbbox & b, SMTConfig & config) const;
     std::ostream & display(std::ostream & out) const;
 };
 

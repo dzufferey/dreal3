@@ -31,6 +31,7 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include "opensmt/egraph/Enode.h"
 #include "opensmt/smtsolvers/SMTConfig.h"
 #include "util/box.h"
+#include "util/fbbox.h"
 #include "constraint/constraint.h"
 
 namespace dreal {
@@ -54,6 +55,7 @@ public:
 class contractor_cell {
 protected:
     contractor_kind m_kind;
+    //TODO DZ: maybe we could push those to the fbbox and makes the contractor completely thread-safe
     mutable ibex::BitSet m_input;
     mutable ibex::BitSet m_output;
     mutable std::unordered_set<constraint const *> m_used_constraints;
@@ -66,6 +68,7 @@ public:
     inline ibex::BitSet output() const { return m_output; }
     inline std::unordered_set<constraint const *> used_constraints() const { return m_used_constraints; }
     virtual box prune(box b, SMTConfig & config) const = 0;
+    virtual void prune(fbbox & b, SMTConfig & config) const = 0;
     virtual std::ostream & display(std::ostream & out) const = 0;
 };
 
@@ -103,6 +106,11 @@ public:
     inline box prune(box const & b, SMTConfig & config) const {
         assert(m_ptr != nullptr);
         return m_ptr->prune(b, config).shrink_bounds();
+    }
+    inline void prune(fbbox & b, SMTConfig & config) const {
+        assert(m_ptr != nullptr);
+        m_ptr->prune(b, config);
+        b.front().shrink_bounds();
     }
     inline bool operator==(contractor const & c) const { return m_ptr == c.m_ptr; }
     inline bool operator<(contractor const & c) const { return m_ptr < c.m_ptr; }
@@ -143,6 +151,7 @@ public:
     contractor_seq(contractor const & c, std::vector<contractor> const & v);
     contractor_seq(contractor const & c1, std::vector<contractor> const & v, contractor const & c2);
     box prune(box b, SMTConfig & config) const;
+    void prune(fbbox & b, SMTConfig & config) const;
     std::ostream & display(std::ostream & out) const;
 };
 
@@ -153,6 +162,7 @@ private:
 public:
     explicit contractor_try(contractor const & c);
     box prune(box b, SMTConfig & config) const;
+    void prune(fbbox & b, SMTConfig & config) const;
     std::ostream & display(std::ostream & out) const;
 };
 
@@ -164,6 +174,7 @@ private:
 public:
     contractor_try_or(contractor const & c1, contractor const & c2);
     box prune(box b, SMTConfig & config) const;
+    void prune(fbbox & b, SMTConfig & config) const;
     std::ostream & display(std::ostream & out) const;
 };
 
@@ -176,6 +187,7 @@ private:
 public:
     contractor_ite(std::function<bool(box const &)> guard, contractor const & c_then, contractor const & c_else);
     box prune(box b, SMTConfig & config) const;
+    void prune(fbbox & b, SMTConfig & config) const;
     std::ostream & display(std::ostream & out) const;
 };
 
@@ -188,8 +200,10 @@ private:
 
     // Naive fixedpoint algorithm
     box naive_fixpoint_alg(box old_b, SMTConfig & config) const;
+    void naive_fixpoint_alg(fbbox & b, SMTConfig & config) const;
     // Worklist fixedpoint algorithm
     box worklist_fixpoint_alg(box old_b, SMTConfig & config) const;
+    void worklist_fixpoint_alg(fbbox & b, SMTConfig & config) const;
 
 public:
     contractor_fixpoint(std::function<bool(box const &, box const &)> term_cond, contractor const & c);
@@ -204,6 +218,7 @@ public:
                         std::vector<contractor> const & cvec3, std::vector<contractor> const & cvec4);
     contractor_fixpoint(std::function<bool(box const &, box const &)> term_cond, std::initializer_list<vector<contractor>> const & cvec_list);
     box prune(box b, SMTConfig & config) const;
+    void prune(fbbox & b, SMTConfig & config) const;
     std::ostream & display(std::ostream & out) const;
 };
 
@@ -212,6 +227,7 @@ private:
 public:
     contractor_int();
     box prune(box b, SMTConfig & config) const;
+    void prune(fbbox & b, SMTConfig & config) const;
     std::ostream & display(std::ostream & out) const;
 };
 
@@ -221,6 +237,7 @@ private:
 public:
     contractor_eval(box const & box, nonlinear_constraint const * const ctr);
     box prune(box b, SMTConfig & config) const;
+    void prune(fbbox & b, SMTConfig & config) const;
     std::ostream & display(std::ostream & out) const;
 };
 
@@ -230,6 +247,7 @@ private:
 public:
     explicit contractor_cache(contractor const & ctc);
     box prune(box b, SMTConfig & config) const;
+    void prune(fbbox & b, SMTConfig & config) const;
     std::ostream & display(std::ostream & out) const;
 };
 
@@ -240,6 +258,7 @@ private:
 public:
     contractor_sample(unsigned const n, vector<constraint *> const & ctrs);
     box prune(box b, SMTConfig & config) const;
+    void prune(fbbox & b, SMTConfig & config) const;
     std::ostream & display(std::ostream & out) const;
 };
 
@@ -250,6 +269,7 @@ private:
 public:
     contractor_aggressive(unsigned const n, vector<constraint *> const & ctrs);
     box prune(box b, SMTConfig & config) const;
+    void prune(fbbox & b, SMTConfig & config) const;
     std::ostream & display(std::ostream & out) const;
 };
 

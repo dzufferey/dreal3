@@ -215,6 +215,11 @@ box contractor_ibex_fwdbwd::prune(box b, SMTConfig & config) const {
     }
     return b;
 }
+
+void contractor_ibex_fwdbwd::prune(fbbox & b, SMTConfig & config) const {
+    assert(false); //TODO
+}
+
 ostream & contractor_ibex_fwdbwd::display(ostream & out) const {
     out << "contractor_ibex_fwdbwd(";
     if (m_ctc != nullptr) {
@@ -322,6 +327,12 @@ box contractor_ibex_polytope::prune(box b, SMTConfig & config) const {
     }
     return b;
 }
+
+void contractor_ibex_polytope::prune(fbbox & b, SMTConfig & config) const {
+    assert(false); //TODO
+}
+
+
 ostream & contractor_ibex_polytope::display(ostream & out) const {
     out << "contractor_ibex_polytope(";
     for (unsigned i = 0; i < m_ctrs.size(); i++) {
