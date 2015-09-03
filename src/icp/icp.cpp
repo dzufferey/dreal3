@@ -26,6 +26,7 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include "util/logging.h"
 #include "util/stat.h"
 #include "util/proof.h"
+#include "util/fbbox.h"
 
 namespace dreal {
 
@@ -45,6 +46,77 @@ void output_solution(box const & b, SMTConfig & config, unsigned i) {
     display(config.nra_model_out, b, false, true);
 }
 
+box naive_icp::solve(box b, contractor const & ctc, SMTConfig & config) {
+    vector<box> solns;
+    vector<box> box_stack;
+    box_stack.push_back(b);
+    DREAL_LOG_INFO << "icp_loop call with: " << b;
+    fbbox fbb(b);
+    do {
+        DREAL_LOG_INFO << "icp_loop()"
+                       << "\t" << "box stack Size = " << box_stack.size();
+        fbb.front() = box_stack.back();
+        box_stack.pop_back();
+        try {
+            DREAL_LOG_INFO << "before pruning, front: " << fbb.front();
+            DREAL_LOG_INFO << "before pruning,  back: " << fbb.back() << std::endl;
+            ctc.prune(fbb, config);
+            DREAL_LOG_INFO << "after pruning, front: " << fbb.front();
+            DREAL_LOG_INFO << "after pruning,  back: " << fbb.back() << std::endl;
+            if (config.nra_use_stat) { config.nra_stat.increase_prune(); }
+        } catch (contractor_exception & e) {
+            // Do nothing
+        }
+        if (!fbb.front().is_empty()) {
+            //TODO we should be able to save some copying by splitting directly the fbb using back and front
+            //we could also skip some copying if we do not push the next branch on the stack
+            tuple<int, box, box> splits = fbb.front().bisect(config.nra_precision);
+            if (config.nra_use_stat) { config.nra_stat.increase_branch(); }
+            int const i = get<0>(splits);
+            if (i >= 0) {
+                box const & first  = get<1>(splits);
+                box const & second = get<2>(splits);
+                if (second.is_bisectable()) {
+                    box_stack.push_back(second);
+                    box_stack.push_back(first);
+                    if (config.nra_proof) {
+                        output_split_step(config.nra_proof_out, fbb.front(), first, second,
+                                          config.nra_readable_proof, i);
+                    }
+                } else {
+                    box_stack.push_back(first);
+                    box_stack.push_back(second);
+                    if (config.nra_proof) {
+                        output_split_step(config.nra_proof_out, fbb.front(), second, first,
+                                          config.nra_readable_proof, i);
+                    }
+                }
+            } else {
+                config.nra_found_soln++;
+                if (config.nra_found_soln >= config.nra_multiple_soln) {
+                    break;
+                }
+                if (config.nra_multiple_soln > 1) {
+                    // If --multiple_soln is used
+                    output_solution(fbb.front(), config, config.nra_found_soln);
+                }
+                solns.push_back(fbb.front());
+            }
+        }
+    } while (box_stack.size() > 0);
+    if (config.nra_multiple_soln > 1 && solns.size() > 0) {
+        return solns.back();
+    } else {
+        b = fbb.front();
+        assert(!b.is_empty() || box_stack.size() == 0);
+        // cerr << "BEFORE ADJUST_BOUND\n==================\n" << b << "=========================\n\n\n";
+        b.adjust_bound(box_stack);
+        // cerr << "AFTER  ADJUST_BOUND\n==================\n" << b << "=========================\n\n\n";
+        return b;
+    }
+}
+
+/*
 box naive_icp::solve(box b, contractor const & ctc, SMTConfig & config) {
     vector<box> solns;
     vector<box> box_stack;
@@ -105,6 +177,7 @@ box naive_icp::solve(box b, contractor const & ctc, SMTConfig & config) {
         return b;
     }
 }
+*/
 
 box ncbt_icp::solve(box b, contractor const & ctc, SMTConfig & config) {
     static unsigned prune_count = 0;

@@ -217,7 +217,65 @@ box contractor_ibex_fwdbwd::prune(box b, SMTConfig & config) const {
 }
 
 void contractor_ibex_fwdbwd::prune(fbbox & b, SMTConfig & config) const {
-    assert(false); //TODO
+    DREAL_LOG_DEBUG << "contractor_ibex_fwdbwd::prune";
+    if (m_ctc == nullptr) { return; }
+
+    // ======= Proof =======
+    if (config.nra_proof) { b.back() = b.front(); }
+
+    DREAL_LOG_DEBUG << "==================================================";
+
+    if (m_var_array.size() == 0) {
+        auto eval_result = m_ctr->eval(b.front());
+        if (eval_result.first == l_False) {
+            b.front().set_empty();
+            return;
+        } else {
+            return;
+        }
+    }
+
+    //TODO ibex checks that the iv's size match the number of variables (cannot use back())
+    // Construct iv from box b
+    ibex::IntervalVector iv(m_var_array.size());
+    for (int i = 0; i < m_var_array.size(); i++) {
+        iv[i] = b.front()[m_var_array[i].name];
+        DREAL_LOG_DEBUG << m_var_array[i].name << " = " << iv[i];
+    }
+    // Prune on iv
+    DREAL_LOG_DEBUG << "Before pruning using ibex_fwdbwd(" << *m_numctr << ")";
+    DREAL_LOG_DEBUG << b.front();
+    DREAL_LOG_DEBUG << "ibex interval = " << iv << " (before)";
+    DREAL_LOG_DEBUG << "function = " << m_ctc->f;
+    DREAL_LOG_DEBUG << "domain   = " << m_ctc->d;
+    m_ctc->contract(iv);
+    DREAL_LOG_DEBUG << "ibex interval = " << iv << " (after)";
+    if (iv.is_empty()) {
+        b.front().set_empty();
+    } else {
+        // Reconstruct box b from pruned result iv.
+        for (int i = 0; i < m_var_array.size(); i++) {
+            b.front()[m_var_array[i].name] = iv[i];
+        }
+    }
+    ibex::BitSet const * const output = m_ctc->output;
+    m_output.clear();
+    for (unsigned i = 0; i <  output->size(); i++) {
+        if ((*output)[i]) {
+            m_output.add(b.front().get_index(m_var_array[i].name));
+        }
+    }
+
+    DREAL_LOG_DEBUG << "After pruning using ibex_fwdbwd(" << *m_numctr << ")";
+    DREAL_LOG_DEBUG << b.front();
+
+    // ======= Proof =======
+    if (config.nra_proof) {
+        ostringstream ss;
+        Enode const * const e = m_ctr->get_enode();
+        ss << (e->getPolarity() == l_False ? "!" : "") << e;
+        output_pruning_step(config.nra_proof_out, b.back(), b.front(), config.nra_readable_proof, ss.str());
+    }
 }
 
 ostream & contractor_ibex_fwdbwd::display(ostream & out) const {
@@ -329,7 +387,31 @@ box contractor_ibex_polytope::prune(box b, SMTConfig & config) const {
 }
 
 void contractor_ibex_polytope::prune(fbbox & b, SMTConfig & config) const {
-    assert(false); //TODO
+    DREAL_LOG_DEBUG << "contractor_ibex_polytope::prune";
+    if (!m_ctc) { return; }
+    for (Enode * var : m_vars_in_ctrs) {
+        m_input.add(b.front().get_index(var));
+    }
+    b.back() = b.front();
+    m_ctc->contract(b.back().get_values());
+    // setup output
+    vector<bool> diff_dims = b.back().diff_dims(b.front());
+    m_output = ibex::BitSet::empty(b.back().size());
+    for (unsigned i = 0; i < diff_dims.size(); i++) {
+        if (diff_dims[i]) {
+            m_output.add(i);
+        }
+    }
+    // ======= Proof =======
+    if (config.nra_proof) {
+        ostringstream ss;
+        for (auto const & ctr : m_ctrs) {
+            Enode const * const e = ctr->get_enode();
+            ss << (e->getPolarity() == l_False ? "!" : "") << e << ";";
+        }
+        output_pruning_step(config.nra_proof_out, b.front(), b.back(), config.nra_readable_proof, ss.str());
+    }
+    b.swap();
 }
 
 

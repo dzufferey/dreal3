@@ -93,7 +93,6 @@ void contractor_seq::prune(fbbox & b, SMTConfig & config) const {
     DREAL_LOG_DEBUG << "contractor_seq::prune";
     m_input  = ibex::BitSet::empty(b.front().size()); //TODO avoid creation of new sets
     m_output = ibex::BitSet::empty(b.front().size()); //TODO avoid creation of new sets
-    //m_used_constraints.clear(); //TODO is seems that m_used_constraints is never reset
     for (contractor const & c : m_vec) {
         c.prune(b, config);
         m_input.union_with(c.input());
@@ -132,6 +131,7 @@ box contractor_try::prune(box b, SMTConfig & config) const {
     m_used_constraints.insert(used_ctrs.begin(), used_ctrs.end());
     return b;
 }
+//TODO this might be incorrect!
 void contractor_try::prune(fbbox & b, SMTConfig & config) const {
     DREAL_LOG_DEBUG << "contractor_try::prune: ";
     try {
@@ -171,6 +171,7 @@ box contractor_try_or::prune(box b, SMTConfig & config) const {
         return b;
     }
 }
+//TODO this might be incorrect!
 void contractor_try_or::prune(fbbox & b, SMTConfig & config) const {
     DREAL_LOG_DEBUG << "contractor_try_or::prune";
     contractor const * ctc = &m_c1;
@@ -299,7 +300,7 @@ box contractor_fixpoint::naive_fixpoint_alg(box old_box, SMTConfig & config) con
     return new_box;
 }
 void contractor_fixpoint::naive_fixpoint_alg(fbbox & b, SMTConfig & config) const {
-    box old_box = b.front();
+    box old_box = b.front(); //TODO thread_local static
     m_input  = ibex::BitSet::empty(old_box.size());
     m_output = ibex::BitSet::empty(old_box.size());
     // Fixed Point Loop
@@ -370,7 +371,7 @@ box contractor_fixpoint::worklist_fixpoint_alg(box old_box, SMTConfig & config) 
 }
 
 void contractor_fixpoint::worklist_fixpoint_alg(fbbox & b, SMTConfig & config) const {
-    box old_box = b.front();
+    box old_box = b.front(); //TODO thread_local static
     m_input  = ibex::BitSet::empty(old_box.size());
     m_output = ibex::BitSet::empty(old_box.size());
 
@@ -461,7 +462,8 @@ void contractor_int::prune(fbbox & b, SMTConfig & config) const {
     m_input  = ibex::BitSet::empty(b.front().size());
     m_output = ibex::BitSet::empty(b.front().size());
     unsigned i = 0;
-    ibex::IntervalVector & iv = b.back().get_values();
+    //this contractor does not even use the back
+    ibex::IntervalVector & iv = b.front().get_values();
     for (Enode * e : b.front().get_vars()) {
         if (e->hasSortInt()) {
             auto old_iv = iv[i];
@@ -471,7 +473,7 @@ void contractor_int::prune(fbbox & b, SMTConfig & config) const {
                 m_output.add(i);
             }
             if (iv[i].is_empty()) {
-                b.back().set_empty();
+                b.front().set_empty();
                 break;
             }
         }
@@ -482,7 +484,6 @@ void contractor_int::prune(fbbox & b, SMTConfig & config) const {
     if (config.nra_proof) {
         output_pruning_step(config.nra_proof_out, b.front(), b.back(), config.nra_readable_proof, "integer pruning");
     }
-    b.swap();
 }
 ostream & contractor_int::display(ostream & out) const {
     out << "contractor_int()";
@@ -731,6 +732,7 @@ void contractor_aggressive::prune(fbbox & b, SMTConfig &) const {
                 DREAL_LOG_DEBUG << "FYI, the interval evaluation gives us : " << eval_result.second;
                 b.back().set_empty();
                 b.swap();
+                return;
             }
         }
     }
