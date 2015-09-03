@@ -74,7 +74,7 @@ contractor_generic_forall::contractor_generic_forall(box const & , generic_foral
     : contractor_cell(contractor_kind::FORALL), m_ctr(ctr) {
 }
 
-box contractor_generic_forall::handle(box b, unordered_set<Enode *> const & forall_vars, Enode * body, bool const p,  SMTConfig & config) const {
+void contractor_generic_forall::handle(fbbox & b, unordered_set<Enode *> const & forall_vars, Enode * body, bool const p,  SMTConfig & config) const {
     if (body->isOr()) {
         vector<Enode *> vec = elist_to_vector(body->getCdr());
         return handle_disjunction(b, forall_vars, vec, p, config);
@@ -146,7 +146,7 @@ box contractor_generic_forall::find_counterexample(box const & b, unordered_set<
     return counterexample;
 }
 
-box contractor_generic_forall::handle_disjunction(box b, unordered_set<Enode *> const & forall_vars, std::vector<Enode *> const &vec, bool const p, SMTConfig & config) const {
+void contractor_generic_forall::handle_disjunction(fbbox & b, unordered_set<Enode *> const & forall_vars, std::vector<Enode *> const &vec, bool const p, SMTConfig & config) const {
     DREAL_LOG_DEBUG << "contractor_generic_forall::handle_disjunction" << endl;
     // For now, we assume that body is a disjunction of *literals*. That is
     //
@@ -156,22 +156,23 @@ box contractor_generic_forall::handle_disjunction(box b, unordered_set<Enode *> 
     //
     // TODO(soonhok): generalize this assumption
     // Step 1. Sample y \in By.
-    box extended_box(b, forall_vars);
+    box extended_box(b.front(), forall_vars);
     unordered_map<Enode*, ibex::Interval> subst;
-    box old_box = b;
+    box old_box(b.front());
+    box start_of_loop(b.front());
     do {
-        old_box = b;
+        old_box = b.front();
         // Step 2. Find a counter-example
         //         Solve(¬ l_1 ∧ ¬ l_2 ∧ ... ∧ ¬ l_n)
         //
         //         Make each ¬ l_i as a contractor ctc_i
         //         Make a fixed_point contractor with ctc_is.
         //         Pass it to icp::solve
-        box counterexample = find_counterexample(b, forall_vars, vec, p, config);
+        box counterexample = find_counterexample(b.front(), forall_vars, vec, p, config);
         if (counterexample.is_empty()) {
             // Step 2.1. (NO Counterexample)
             //           Return B.
-            return b;
+            return;
         } else {
             // Step 2.2. (There IS a counterexample C)
             //
@@ -185,6 +186,7 @@ box contractor_generic_forall::handle_disjunction(box b, unordered_set<Enode *> 
         //         Update B with ∨ B_i
         //                       i
         std::vector<box> boxes;
+        start_of_loop = b.front();
         for (Enode * e : vec) {
             if (!e->get_exist_vars().empty()) {
                 lbool polarity = p ? l_True : l_False;
@@ -194,53 +196,51 @@ box contractor_generic_forall::handle_disjunction(box b, unordered_set<Enode *> 
                 }
                 nonlinear_constraint * ctr = new nonlinear_constraint(e, polarity, subst);
                 if (ctr->get_var_array().size() == 0) {
-                    auto result = ctr->eval(b);
+                    auto result = ctr->eval(b.front());
                     if (result.first != false) {
-                        boxes.emplace_back(b);
+                        boxes.emplace_back(b.front());
                     }
                 } else {
-                    contractor ctc = mk_contractor_ibex_fwdbwd(b, ctr);
-                    box const bt = ctc.prune(b, config);
-                    boxes.emplace_back(bt);
+                    //this assumes that ibex contractor do not throw exceptions
+                    contractor ctc = mk_contractor_ibex_fwdbwd(b.front(), ctr);
+                    ctc.prune(b, config);
+                    boxes.emplace_back(b.front());
+                    b.front() = start_of_loop;
                 }
                 delete ctr;
             }
         }
-        b = hull(boxes);
-    } while (b != old_box);
-    return b;
-}
-box contractor_generic_forall::handle_conjunction(box b, unordered_set<Enode *> const & forall_vars, vector<Enode *> const & vec, bool const p, SMTConfig & config) const {
-    DREAL_LOG_DEBUG << "contractor_generic_forall::handle_conjunction" << endl;
-    box old_b = b;
-    do {
-        old_b = b;
-        for (Enode * e : vec) {
-            DREAL_LOG_DEBUG << "process conjunction element : " << e << endl;
-            b = handle(b, forall_vars, e, p, config);
-            if (b.is_empty()) {
-                return b;
-            }
-        }
-    } while (old_b != b);
-    return b;
-}
-box contractor_generic_forall::handle_atomic(box b, unordered_set<Enode *> const & forall_vars, Enode * body, bool const p, SMTConfig & config) const {
-    vector<Enode*> vec;
-    vec.push_back(body);
-    return handle_disjunction(b, forall_vars, vec, p, config);
+        b.front() = hull(boxes);
+    } while (b.front() != old_box);
 }
 
-box contractor_generic_forall::prune(box b, SMTConfig & config) const {
+void contractor_generic_forall::handle_conjunction(fbbox & b, unordered_set<Enode *> const & forall_vars, vector<Enode *> const & vec, bool const p, SMTConfig & config) const {
+    DREAL_LOG_DEBUG << "contractor_generic_forall::handle_conjunction" << endl;
+    box old_b = b.front();
+    do {
+        old_b = b.front();
+        for (Enode * e : vec) {
+            DREAL_LOG_DEBUG << "process conjunction element : " << e << endl;
+            handle(b, forall_vars, e, p, config);
+            if (b.front().is_empty()) {
+                return;
+            }
+        }
+    } while (old_b != b.front());
+}
+
+void contractor_generic_forall::handle_atomic(fbbox & b, unordered_set<Enode *> const & forall_vars, Enode * body, bool const p, SMTConfig & config) const {
+    vector<Enode*> vec;
+    vec.push_back(body);
+    handle_disjunction(b, forall_vars, vec, p, config);
+}
+
+void contractor_generic_forall::prune(fbbox & b, SMTConfig & config) const {
     DREAL_LOG_DEBUG << "prune: " << *m_ctr << endl;
     Enode * body = m_ctr->get_body();
     unordered_set<Enode *> const forall_vars = m_ctr->get_forall_vars();
     DREAL_LOG_DEBUG << "body = " << body << endl;
-    return handle(b, forall_vars, body, true, config);
-}
-
-void contractor_generic_forall::prune(fbbox & b, SMTConfig & config) const {
-    assert(false); //TODO
+    handle(b, forall_vars, body, true, config);
 }
 
 ostream & contractor_generic_forall::display(ostream & out) const {

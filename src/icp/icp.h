@@ -62,7 +62,7 @@ class parallel_icp {
     stack<box> solutions;
     stack<tuple<unsigned,box>> box_stack;
     
-    void worker(int i); //TODO i for debugging
+    void worker(int i, box const & b); //TODO i for debugging
 
 public:
     parallel_icp(contractor const & c, SMTConfig & cfg): ctc(c), config(cfg) { }

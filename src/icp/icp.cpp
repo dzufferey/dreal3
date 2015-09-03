@@ -116,68 +116,6 @@ box naive_icp::solve(box b, contractor const & ctc, SMTConfig & config) {
     }
 }
 
-/*
-box naive_icp::solve(box b, contractor const & ctc, SMTConfig & config) {
-    vector<box> solns;
-    vector<box> box_stack;
-    box_stack.push_back(b);
-    do {
-        DREAL_LOG_INFO << "icp_loop()"
-                       << "\t" << "box stack Size = " << box_stack.size();
-        b = box_stack.back();
-        box_stack.pop_back();
-        try {
-            b = ctc.prune(b, config);
-            if (config.nra_use_stat) { config.nra_stat.increase_prune(); }
-        } catch (contractor_exception & e) {
-            // Do nothing
-        }
-        if (!b.is_empty()) {
-            tuple<int, box, box> splits = b.bisect(config.nra_precision);
-            if (config.nra_use_stat) { config.nra_stat.increase_branch(); }
-            int const i = get<0>(splits);
-            if (i >= 0) {
-                box const & first  = get<1>(splits);
-                box const & second = get<2>(splits);
-                if (second.is_bisectable()) {
-                    box_stack.push_back(second);
-                    box_stack.push_back(first);
-                    if (config.nra_proof) {
-                        output_split_step(config.nra_proof_out, b, first, second,
-                                          config.nra_readable_proof, i);
-                    }
-                } else {
-                    box_stack.push_back(first);
-                    box_stack.push_back(second);
-                    if (config.nra_proof) {
-                        output_split_step(config.nra_proof_out, b, second, first,
-                                          config.nra_readable_proof, i);
-                    }
-                }
-            } else {
-                config.nra_found_soln++;
-                if (config.nra_found_soln >= config.nra_multiple_soln) {
-                    break;
-                }
-                if (config.nra_multiple_soln > 1) {
-                    // If --multiple_soln is used
-                    output_solution(b, config, config.nra_found_soln);
-                }
-                solns.push_back(b);
-            }
-        }
-    } while (box_stack.size() > 0);
-    if (config.nra_multiple_soln > 1 && solns.size() > 0) {
-        return solns.back();
-    } else {
-        assert(!b.is_empty() || box_stack.size() == 0);
-        // cerr << "BEFORE ADJUST_BOUND\n==================\n" << b << "=========================\n\n\n";
-        b.adjust_bound(box_stack);
-        // cerr << "AFTER  ADJUST_BOUND\n==================\n" << b << "=========================\n\n\n";
-        return b;
-    }
-}
-*/
 
 box ncbt_icp::solve(box b, contractor const & ctc, SMTConfig & config) {
     static unsigned prune_count = 0;
@@ -185,14 +123,15 @@ box ncbt_icp::solve(box b, contractor const & ctc, SMTConfig & config) {
     vector<int> bisect_var_stack;
     box_stack.push_back(b);
     bisect_var_stack.push_back(-1);  // Dummy var
+    fbbox fbb(b);
     do {
         // Loop Invariant
         assert(box_stack.size() == bisect_var_stack.size());
         DREAL_LOG_INFO << "new_icp_loop()"
                        << "\t" << "box stack Size = " << box_stack.size();
-        b = box_stack.back();
+        fbb.front() = box_stack.back();
         try {
-            b = ctc.prune(b, config);
+            ctc.prune(fbb, config);
             if (config.nra_use_stat) { config.nra_stat.increase_prune(); }
         } catch (contractor_exception & e) {
             // Do nothing
@@ -200,9 +139,9 @@ box ncbt_icp::solve(box b, contractor const & ctc, SMTConfig & config) {
         prune_count++;
         box_stack.pop_back();
         bisect_var_stack.pop_back();
-        if (!b.is_empty()) {
+        if (!fbb.front().is_empty()) {
             // SAT
-            tuple<int, box, box> splits = b.bisect(config.nra_precision);
+            tuple<int, box, box> splits = fbb.front().bisect(config.nra_precision);
             if (config.nra_use_stat) { config.nra_stat.increase_branch(); }
             int const index = get<0>(splits);
             if (index >= 0) {
@@ -212,14 +151,14 @@ box ncbt_icp::solve(box b, contractor const & ctc, SMTConfig & config) {
                     box_stack.push_back(second);
                     box_stack.push_back(first);
                     if (config.nra_proof) {
-                        output_split_step(config.nra_proof_out, b, first, second,
+                        output_split_step(config.nra_proof_out, fbb.front(), first, second,
                                           config.nra_readable_proof, index);
                     }
                 } else {
                     box_stack.push_back(first);
                     box_stack.push_back(second);
                     if (config.nra_proof) {
-                        output_split_step(config.nra_proof_out, b, second, first,
+                        output_split_step(config.nra_proof_out, fbb.front(), second, first,
                                           config.nra_readable_proof, index);
                     }
                 }
@@ -245,6 +184,7 @@ box ncbt_icp::solve(box b, contractor const & ctc, SMTConfig & config) {
         }
     } while (box_stack.size() > 0);
     DREAL_LOG_DEBUG << "prune count = " << prune_count;
+    b = fbb.front();
     b.adjust_bound(box_stack);
     return b;
 }
@@ -259,18 +199,19 @@ box random_icp::solve(box b, contractor const & ctc, SMTConfig & config ) {
     vector<box> solns;
     vector<box> box_stack;
     box_stack.push_back(b);
+    fbbox fbb(b);
     do {
         DREAL_LOG_INFO << "icp_loop()"
                        << "\t" << "box stack Size = " << box_stack.size();
-        b = box_stack.back();
+        fbb.front() = box_stack.back();
         box_stack.pop_back();
         try {
-            b = ctc.prune(b, config);
+            ctc.prune(fbb, config);
         } catch (contractor_exception & e) {
             // Do nothing
         }
-        if (!b.is_empty()) {
-            tuple<int, box, box> splits = b.bisect(config.nra_precision);
+        if (!fbb.front().is_empty()) {
+            tuple<int, box, box> splits = fbb.front().bisect(config.nra_precision);
             int const i = get<0>(splits);
             if (i >= 0) {
                 box const & first  = get<1>(splits);
@@ -279,14 +220,14 @@ box random_icp::solve(box b, contractor const & ctc, SMTConfig & config ) {
                     box_stack.push_back(second);
                     box_stack.push_back(first);
                     if (config.nra_proof) {
-                        output_split_step(config.nra_proof_out, b, first, second,
+                        output_split_step(config.nra_proof_out, fbb.front(), first, second,
                                           config.nra_readable_proof, i);
                     }
                 } else {
                     box_stack.push_back(first);
                     box_stack.push_back(second);
                     if (config.nra_proof) {
-                        output_split_step(config.nra_proof_out, b, second, first,
+                        output_split_step(config.nra_proof_out, fbb.front(), second, first,
                                           config.nra_readable_proof, i);
                     }
                 }
@@ -297,15 +238,16 @@ box random_icp::solve(box b, contractor const & ctc, SMTConfig & config ) {
                 }
                 if (config.nra_multiple_soln > 1) {
                     // If --multiple_soln is used
-                    output_solution(b, config, config.nra_found_soln);
+                    output_solution(fbb.front(), config, config.nra_found_soln);
                 }
-                solns.push_back(b);
+                solns.push_back(fbb.front());
             }
         }
     } while (box_stack.size() > 0);
     if (config.nra_multiple_soln > 1 && solns.size() > 0) {
         return solns.back();
     } else {
+        b = fbb.front();
         assert(!b.is_empty() || box_stack.size() == 0);
         // cerr << "BEFORE ADJUST_BOUND\n==================\n" << b << "=========================\n\n\n";
         b.adjust_bound(box_stack);
@@ -315,8 +257,9 @@ box random_icp::solve(box b, contractor const & ctc, SMTConfig & config ) {
 }
 
 //TODO print proof
-void parallel_icp::worker(int tid) {
+void parallel_icp::worker(int tid, box const & b) {
     //cerr << "worker starting" << endl;
+    fbbox fbb(b);
     std::unique_lock<std::mutex> l(lock); //this acquires l
     while (true) {
         if (!found_solution && working > 1 && box_stack.empty()) {
@@ -343,28 +286,28 @@ void parallel_icp::worker(int tid) {
             l.unlock();
 
             unsigned id = get<0>(branch);
-            box b = get<1>(branch);
+            fbb.front() = get<1>(branch);
             //cerr << tid << " working on branch: " << id << ", stack: " << box_stack.size() << endl;
-            assert(!b.is_empty());
+            assert(!fbb.front().is_empty());
 
-            while (!b.is_empty()) {
+            while (!fbb.front().is_empty()) {
 
                 //prune
                 try {
                     if (config.nra_use_stat) { config.nra_stat.increase_prune(); }
-                    b = ctc.prune(b, config);
+                    ctc.prune(fbb, config);
                 } catch (contractor_exception & e) {
                     // Do nothing
                 }
 
-                if (!b.is_empty()) {
+                if (!fbb.front().is_empty()) {
                     // split
                     if (config.nra_use_stat) { config.nra_stat.increase_branch(); }
-                    tuple<int, box, box> splits = b.bisect(config.nra_precision);
+                    tuple<int, box, box> splits = fbb.front().bisect(config.nra_precision);
                     int const i = get<0>(splits);
                     if (i >= 0) {
                         //push one branch on the stack and continue with the other
-                        b = get<1>(splits);
+                        fbb.front() = get<1>(splits);
                         box const & other_branch = get<2>(splits);
                         l.lock();
                         branches += 1;
@@ -376,7 +319,7 @@ void parallel_icp::worker(int tid) {
                         //we have a solution
                         //cerr << tid << " found a solution" << endl;
                         l.lock();
-                        solutions.push(b);
+                        solutions.push(fbb.front());
                         if (solutions.size() >= config.nra_multiple_soln) {
                             found_solution = true;
                         }
@@ -399,41 +342,31 @@ void parallel_icp::worker(int tid) {
 
 box parallel_icp::solve(box b, contractor const & ctc, SMTConfig & config) {
     int nbr_workers = std::thread::hardware_concurrency();
-    if (nbr_workers == 0) {
+    if (nbr_workers <= 1) {
         return naive_icp::solve(b, ctc, config);
     } else {
         parallel_icp p_icp(ctc, config);
         p_icp.working = nbr_workers;
         std::unique_lock<std::mutex> l(p_icp.lock); //this acquires l
         //push the initial box
-        //cerr << "1" << endl;
         p_icp.box_stack.push(tuple<unsigned,box>(0,b));
-        //cerr << "2" << endl;
         //create the workers
         std::thread workers[nbr_workers];
         for (int i = 0; i < nbr_workers; i++) {
-             workers[i] = std::thread([&p_icp,i] { p_icp.worker(i); });
+             workers[i] = std::thread([&p_icp,i,b] { p_icp.worker(i, b); });
         }
-        //cerr << "3" << endl;
         p_icp.cv.wait(l, [&p_icp]{return p_icp.found_solution || (p_icp.working == 0 && p_icp.box_stack.empty());});
         l.unlock();
         for (int i = 0; i < nbr_workers; i++) {
-             //cerr << "joining " << i << endl;
              workers[i].join();
         }
-        //cerr << "4" << endl;
         //check if there is a solution
         if (p_icp.found_solution) {
-            //cerr << "5" << endl;
             box sol = p_icp.solutions.top();
-            //cerr << "6" << endl;
             sol.set_bounds(b.get_values());
-            //cerr << "7" << endl;
             return sol;
         } else {
-            //cerr << "8" << endl;
             b.set_empty();
-            //cerr << "9" << endl;
             return b;
         }
     }

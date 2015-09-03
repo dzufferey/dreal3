@@ -153,68 +153,6 @@ contractor_ibex_fwdbwd::contractor_ibex_fwdbwd(box const & box, nonlinear_constr
 contractor_ibex_fwdbwd::~contractor_ibex_fwdbwd() {
     delete m_ctc;
 }
-box contractor_ibex_fwdbwd::prune(box b, SMTConfig & config) const {
-    DREAL_LOG_DEBUG << "contractor_ibex_fwdbwd::prune";
-    if (m_ctc == nullptr) { return b; }
-
-    // ======= Proof =======
-    thread_local static box old_box(b);
-    if (config.nra_proof) { old_box = b; }
-
-    DREAL_LOG_DEBUG << "==================================================";
-
-    if (m_var_array.size() == 0) {
-        auto eval_result = m_ctr->eval(b);
-        if (eval_result.first == l_False) {
-            b.set_empty();
-            return b;
-        } else {
-            return b;
-        }
-    }
-
-    // Construct iv from box b
-    ibex::IntervalVector iv(m_var_array.size());
-    for (int i = 0; i < m_var_array.size(); i++) {
-        iv[i] = b[m_var_array[i].name];
-        DREAL_LOG_DEBUG << m_var_array[i].name << " = " << iv[i];
-    }
-    // Prune on iv
-    DREAL_LOG_DEBUG << "Before pruning using ibex_fwdbwd(" << *m_numctr << ")";
-    DREAL_LOG_DEBUG << b;
-    DREAL_LOG_DEBUG << "ibex interval = " << iv << " (before)";
-    DREAL_LOG_DEBUG << "function = " << m_ctc->f;
-    DREAL_LOG_DEBUG << "domain   = " << m_ctc->d;
-    m_ctc->contract(iv);
-    DREAL_LOG_DEBUG << "ibex interval = " << iv << " (after)";
-    if (iv.is_empty()) {
-        b.set_empty();
-    } else {
-        // Reconstruct box b from pruned result iv.
-        for (int i = 0; i < m_var_array.size(); i++) {
-            b[m_var_array[i].name] = iv[i];
-        }
-    }
-    ibex::BitSet const * const output = m_ctc->output;
-    m_output.clear();
-    for (unsigned i = 0; i <  output->size(); i++) {
-        if ((*output)[i]) {
-            m_output.add(b.get_index(m_var_array[i].name));
-        }
-    }
-
-    DREAL_LOG_DEBUG << "After pruning using ibex_fwdbwd(" << *m_numctr << ")";
-    DREAL_LOG_DEBUG << b;
-
-    // ======= Proof =======
-    if (config.nra_proof) {
-        ostringstream ss;
-        Enode const * const e = m_ctr->get_enode();
-        ss << (e->getPolarity() == l_False ? "!" : "") << e;
-        output_pruning_step(config.nra_proof_out, old_box, b, config.nra_readable_proof, ss.str());
-    }
-    return b;
-}
 
 void contractor_ibex_fwdbwd::prune(fbbox & b, SMTConfig & config) const {
     DREAL_LOG_DEBUG << "contractor_ibex_fwdbwd::prune";
@@ -355,35 +293,6 @@ contractor_ibex_polytope::~contractor_ibex_polytope() {
         delete var;
         delete symbol;
     }
-}
-
-box contractor_ibex_polytope::prune(box b, SMTConfig & config) const {
-    DREAL_LOG_DEBUG << "contractor_ibex_polytope::prune";
-    if (!m_ctc) { return b; }
-    for (Enode * var : m_vars_in_ctrs) {
-        m_input.add(b.get_index(var));
-    }
-    thread_local static box old_box(b);
-    old_box = b;
-    m_ctc->contract(b.get_values());
-    // setup output
-    vector<bool> diff_dims = b.diff_dims(old_box);
-    m_output = ibex::BitSet::empty(old_box.size());
-    for (unsigned i = 0; i < diff_dims.size(); i++) {
-        if (diff_dims[i]) {
-            m_output.add(i);
-        }
-    }
-    // ======= Proof =======
-    if (config.nra_proof) {
-        ostringstream ss;
-        for (auto const & ctr : m_ctrs) {
-            Enode const * const e = ctr->get_enode();
-            ss << (e->getPolarity() == l_False ? "!" : "") << e << ";";
-        }
-        output_pruning_step(config.nra_proof_out, old_box, b, config.nra_readable_proof, ss.str());
-    }
-    return b;
 }
 
 void contractor_ibex_polytope::prune(fbbox & b, SMTConfig & config) const {

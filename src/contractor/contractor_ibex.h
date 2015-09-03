@@ -45,7 +45,6 @@ private:
 public:
     contractor_ibex_fwdbwd(box const & box, nonlinear_constraint const * const ctr);
     ~contractor_ibex_fwdbwd();
-    box prune(box b, SMTConfig & config) const;
     void prune(fbbox & b, SMTConfig & config) const;
     std::ostream & display(std::ostream & out) const;
 };
@@ -72,7 +71,6 @@ private:
 public:
     contractor_ibex_polytope(double const prec, std::vector<Enode *> const & vars, std::vector<nonlinear_constraint const *> const & ctrs);
     ~contractor_ibex_polytope();
-    box prune(box b, SMTConfig & config) const;
     void prune(fbbox & b, SMTConfig & config) const;
     std::ostream & display(std::ostream & out) const;
 };

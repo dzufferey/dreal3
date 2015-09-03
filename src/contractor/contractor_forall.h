@@ -42,7 +42,6 @@ private:
 
 public:
     contractor_forall(box const & b, forall_constraint const * const ctr);
-    box prune(box b, SMTConfig & config) const;
     void prune(fbbox & b, SMTConfig & config) const;
     std::ostream & display(std::ostream & out) const;
 };

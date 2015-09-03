@@ -82,14 +82,13 @@ contractor_forall::contractor_forall(box const & , forall_constraint const * con
     : contractor_cell(contractor_kind::FORALL), m_ctr(ctr) {
 }
 
-box contractor_forall::prune(box b, SMTConfig & config) const {
+void contractor_forall::prune(fbbox & b, SMTConfig & config) const {
     // Prep
-    static thread_local box old_box(b);
     lbool const p = m_ctr->get_polarity();
     Enode * const e = m_ctr->get_enode();
     unordered_set<Enode*> const & forall_vars = m_ctr->get_forall_vars();
     DREAL_LOG_DEBUG << "\n\n==================================" << endl;
-    DREAL_LOG_DEBUG << "contractor_forall::prune: begin = " << b << endl;
+    DREAL_LOG_DEBUG << "contractor_forall::prune: begin = " << b.front() << endl;
 
     // ==================================================================
     // Stpe 1.
@@ -97,15 +96,15 @@ box contractor_forall::prune(box b, SMTConfig & config) const {
     // Check ∃ x, ∃ y, f(x, y) to try to reduce the range of y
     // If ∃ x, ∃ y, f(x, y) is UNSAT, then return empty box.
     // ==================================================================
-    box extended_box(b, forall_vars);
+    box extended_box(b.front(), forall_vars);
     nonlinear_constraint const * const ctr0 = new nonlinear_constraint(e, p);
     contractor extended_ctc = mk_contractor_ibex_fwdbwd(extended_box, ctr0);
-    extended_box = extended_ctc.prune(extended_box, config);
+    extended_box = extended_ctc.prune(extended_box, config); //TODO fbbox
     // random_icp::solve(extended_box, extended_ctc, config);
     delete ctr0;
     if (extended_box.is_empty()) {
-        b.set_empty();
-        return b;
+        b.front().set_empty();
+        return;
     }
 
     // ====================================================================================
@@ -118,11 +117,12 @@ box contractor_forall::prune(box b, SMTConfig & config) const {
     unordered_map<Enode*, ibex::Interval> subst = make_subst_from_bound(extended_box, forall_vars);
     // DREAL_LOG_DEBUG << "subst = " << subst << endl;
     nonlinear_constraint const * const ctr = new nonlinear_constraint(e, p, subst);
-    contractor ctc = mk_contractor_ibex_fwdbwd(b, ctr);
-    old_box = b;
+    contractor ctc = mk_contractor_ibex_fwdbwd(b.front(), ctr);
+    box old_box(b.front());
+    //b.back() = b.front();
     DREAL_LOG_DEBUG << "prune using " << ctc << endl;
-    b = ctc.prune(b, config);
-    if (b == old_box) {
+    ctc.prune(b, config);
+    if (b.front() == old_box) {
         // =========================================================
         // Step 3.
         // Check Counterexample -- ∃ x, ∃ y. ¬ f(x, y).
@@ -130,7 +130,7 @@ box contractor_forall::prune(box b, SMTConfig & config) const {
         // =========================================================
         DREAL_LOG_DEBUG << "Sampling doesn't help. Try to find a counter example" << endl;
         nonlinear_constraint const * const not_ctr = new nonlinear_constraint(e, !p);
-        box counter_example(b, forall_vars);
+        box counter_example(b.front(), forall_vars); //TODO can't we reuse extended_box
         contractor not_ctc = mk_contractor_ibex_fwdbwd(counter_example, not_ctr);
         DREAL_LOG_DEBUG << "icp with " << not_ctc << endl;
         counter_example = random_icp::solve(counter_example, not_ctc, config);
@@ -146,14 +146,14 @@ box contractor_forall::prune(box b, SMTConfig & config) const {
             subst = make_subst_from_value(counter_example, forall_vars);
             // DREAL_LOG_DEBUG << "subst = " << subst << endl;
             nonlinear_constraint const * const ctr2 = new nonlinear_constraint(e, p, subst);
-            contractor ctc2 = mk_contractor_ibex_fwdbwd(b, ctr2);
+            contractor ctc2 = mk_contractor_ibex_fwdbwd(b.front(), ctr2);
             DREAL_LOG_DEBUG << "prune using " << ctc2 << endl;
-            b = ctc2.prune(b, config);
-            if (b != old_box) {
+            ctc2.prune(b, config);
+            if (b.front() != old_box) {
                 DREAL_LOG_DEBUG << "Pruned from counterexample (stop)" << endl;
             } else {
                 DREAL_LOG_DEBUG << "b == old_box. a counter example doesn't prune anything. repeat." << endl;
-                DREAL_LOG_DEBUG << b << endl;
+                DREAL_LOG_DEBUG << b.front() << endl;
             }
             delete ctr2;
         } else {
@@ -163,17 +163,12 @@ box contractor_forall::prune(box b, SMTConfig & config) const {
     } else {
         DREAL_LOG_DEBUG << "b != old_box, we made a progress, exit." << endl;
     }
-    DREAL_LOG_DEBUG << "contractor_forall::prune: result = " << b << endl;
+    DREAL_LOG_DEBUG << "contractor_forall::prune: result = " << b.front() << endl;
     DREAL_LOG_DEBUG << "==================================\n\n" << endl;
     m_used_constraints.insert(m_ctr);
-    m_input  = ibex::BitSet::all(b.size());
-    m_output = ibex::BitSet::all(b.size());
+    m_input  = ibex::BitSet::all(b.front().size());
+    m_output = ibex::BitSet::all(b.front().size());
     delete ctr;
-    return b;
-}
-
-void contractor_forall::prune(fbbox & b, SMTConfig & config) const {
-    assert(false); //TODO
 }
 
 ostream & contractor_forall::display(ostream & out) const {
