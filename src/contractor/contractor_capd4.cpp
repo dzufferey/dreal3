@@ -318,7 +318,7 @@ box contractor_capd_fwd_simple::prune(box b, SMTConfig &) const {
 }
 
 void contractor_capd_fwd_simple::prune(fbbox & b, SMTConfig &) const {
-    assert(false);
+    // TODO(soonhok): implement this
 }
 
 // ode_solver::ODE_result ode_solver::simple_ODE_forward(IVector const & X_0, IVector & X_t, interval const & T,
@@ -462,7 +462,7 @@ bool filter(vector<pair<capd::interval, capd::IVector>> & enclosures, capd::IVec
     }
 }
 
-box intersect_params(box & b, integral_constraint const & ic) {
+void intersect_params(box & b, integral_constraint const & ic) {
     vector<Enode*> const & pars_0 = ic.get_pars_0();
     vector<Enode*> const & pars_t = ic.get_pars_t();
     capd::IVector X_0 = extract_ivector(b, pars_0);
@@ -476,7 +476,6 @@ box intersect_params(box & b, integral_constraint const & ic) {
         update_box_with_ivector(b, ic.get_pars_0(), X_0);
         update_box_with_ivector(b, ic.get_pars_t(), X_0);
     }
-    return b;
 }
 
 template<typename T>
@@ -495,7 +494,7 @@ box contractor_capd_fwd_full::prune(box b, SMTConfig & config) const {
     old_box = b;
     DREAL_LOG_DEBUG << "contractor_capd_fwd_full::prune";
     integral_constraint const & ic = m_ctr->get_ic();
-    b = intersect_params(b, ic);
+    intersect_params(b, ic);
     if (b.is_empty()) {
         m_output  = ibex::BitSet::all(b.size());
         return b;
@@ -584,6 +583,95 @@ box contractor_capd_fwd_full::prune(box b, SMTConfig & config) const {
 
 void contractor_capd_fwd_full::prune(fbbox & b, SMTConfig & config) const {
     assert(false); //TODO
+    b.back() = b.front();
+    DREAL_LOG_DEBUG << "contractor_capd_fwd_full::prune";
+    integral_constraint const & ic = m_ctr->get_ic();
+    intersect_params(b.back(), ic);
+    if (b.back().is_empty()) {
+        m_output  = ibex::BitSet::all(b.back().size());
+        b.swap();
+        return;
+    }
+    m_output  = ibex::BitSet::empty(b.back().size());
+    if (!m_solver) {
+        // Trivial Case where there are only params and no real ODE vars.
+        b.swap();
+        return;
+    }
+    set_params(*m_vectorField, b.back(), ic);
+
+    try {
+        if (config.nra_ODE_step > 0) {
+            m_solver->setStep(config.nra_ODE_step);
+        }
+        capd::IVector  m_X_0 = extract_ivector(b.back(), ic.get_vars_0());
+        capd::IVector  m_X_t = extract_ivector(b.back(), ic.get_vars_t());
+        ibex::Interval const & ibex_T = b.back()[ic.get_time_t()];
+        capd::interval m_T(ibex_T.lb(), ibex_T.ub());
+
+        DREAL_LOG_INFO << "X_0 : " << m_X_0;
+        DREAL_LOG_INFO << "X_t : " << m_X_t;
+        DREAL_LOG_INFO << "T   : " << m_T;
+
+        capd::C0Rect2Set s(m_X_0);
+        m_timeMap->stopAfterStep(true);
+        capd::interval prevTime(0.);
+
+        vector<pair<capd::interval, capd::IVector>> enclosures;
+        do {
+            // Move s toward m_T.rightBound()
+            (*m_timeMap)(m_T.rightBound(), s);
+            if (contain_nan(s)) {
+                DREAL_LOG_INFO << "ode_solver::compute_forward: contain NaN";
+            }
+
+            if (m_T.leftBound() <= m_timeMap->getCurrentTime().rightBound()) {
+                //                     [     T      ]
+                // [     current Time     ]
+                bool invariantViolated = compute_enclosures(*m_solver, prevTime, m_T, m_grid_size, enclosures);
+                if (invariantViolated) {
+                    // TODO(soonhok): invariant
+                    DREAL_LOG_INFO << "ode_solver::compute_forward: invariant violated";
+                    // ret = ODE_result::SAT;
+                    break;
+                }
+            }
+            prevTime = m_timeMap->getCurrentTime();
+        } while (/*!invariantViolated &&*/ !m_timeMap->completed());
+        if (filter(enclosures, m_X_t, m_T)) {
+            // SAT
+            update_box_with_ivector(b.back(), ic.get_vars_t(), m_X_t);
+            // TODO(soonhok): Here we still assume that time_0 = zero.
+            b.back()[ic.get_time_t()] = ibex::Interval(m_T.leftBound(), m_T.rightBound());
+            DREAL_LOG_DEBUG << "contractor_capd_fwd_full::prune: get non-empty set after filtering";
+        } else {
+            // UNSAT
+            DREAL_LOG_DEBUG << "contractor_capd_fwd_full::prune: get empty set after filtering";
+            b.back().set_empty();
+        }
+        DREAL_LOG_INFO << "m_X_0 : " << m_X_0;
+        DREAL_LOG_INFO << "m_X_t : " << m_X_t;
+        DREAL_LOG_INFO << "m_T   : " << m_T;
+    } catch (capd::intervals::IntervalError<double> & e) {
+        throw contractor_exception(e.what());
+    } catch (capd::ISolverException & e) {
+        throw contractor_exception(e.what());
+    }
+    vector<bool> diff_dims = b.back().diff_dims(b.front());
+    for (unsigned i = 0; i < diff_dims.size(); i++) {
+        if (diff_dims[i]) {
+            m_output.add(i);
+        }
+    }
+
+    // ======= Proof =======
+    if (config.nra_proof) {
+        ostringstream ss;
+        Enode const * const e = m_ctr->get_enode();
+        ss << (e->getPolarity() == l_False ? "!" : "") << e;
+        output_pruning_step(config.nra_proof_out, b.front(), b.back(), config.nra_readable_proof, ss.str());
+    }
+    b.swap();
 }
 
 unsigned int extract_step(string const & name) {
@@ -604,7 +692,7 @@ unsigned int extract_step(string const & name) {
 
 json contractor_capd_fwd_full::generate_trace(box b, SMTConfig & config) const {
     integral_constraint const & ic = m_ctr->get_ic();
-    b = intersect_params(b, ic);
+    intersect_params(b, ic);
     if (!m_solver) {
         // Trivial Case where there are only params and no real ODE vars.
         return {};
@@ -700,7 +788,7 @@ box contractor_capd_bwd_simple::prune(box b, SMTConfig &) const {
 }
 
 void contractor_capd_bwd_simple::prune(fbbox & b, SMTConfig &) const {
-    assert(false); //TODO
+    // TODO(soonhok): implement this
 }
 
 ostream & contractor_capd_bwd_simple::display(ostream & out) const {
@@ -743,7 +831,7 @@ box contractor_capd_bwd_full::prune(box b, SMTConfig & config) const {
     old_box = b;
     DREAL_LOG_DEBUG << "contractor_capd_bwd_full::prune";
     integral_constraint const & ic = m_ctr->get_ic();
-    b = intersect_params(b, ic);
+    intersect_params(b, ic);
     if (b.is_empty()) {
         m_output  = ibex::BitSet::all(b.size());
         return b;
@@ -829,7 +917,94 @@ box contractor_capd_bwd_full::prune(box b, SMTConfig & config) const {
 }
 
 void contractor_capd_bwd_full::prune(fbbox & b, SMTConfig & config) const {
-    assert(false); //TODO
+    b.back() = b.front();
+    DREAL_LOG_DEBUG << "contractor_capd_bwd_full::prune";
+    integral_constraint const & ic = m_ctr->get_ic();
+    intersect_params(b.back(), ic);
+    if (b.back().is_empty()) {
+        m_output  = ibex::BitSet::all(b.back().size());
+        b.swap();
+        return;
+    }
+    m_output  = ibex::BitSet::empty(b.back().size());
+    if (!m_solver) {
+        // Trivial Case where there are only params and no real ODE vars.
+        b.swap();
+        return;
+    }
+    set_params(*m_vectorField, b.back(), ic);
+
+    try {
+        if (config.nra_ODE_step > 0) {
+            m_solver->setStep(config.nra_ODE_step);
+        }
+        capd::IVector  m_X_0 = extract_ivector(b.back(), ic.get_vars_0());
+        capd::IVector  m_X_t = extract_ivector(b.back(), ic.get_vars_t());
+        ibex::Interval const & ibex_T = b.back()[ic.get_time_t()];
+        capd::interval m_T(ibex_T.lb(), ibex_T.ub());
+
+        DREAL_LOG_INFO << "X_0 : " << m_X_0;
+        DREAL_LOG_INFO << "X_t : " << m_X_t;
+        DREAL_LOG_INFO << "T   : " << m_T;
+
+        capd::C0Rect2Set s(m_X_t);
+        m_timeMap->stopAfterStep(true);
+        capd::interval prevTime(0.);
+
+        vector<pair<capd::interval, capd::IVector>> enclosures;
+        do {
+            // Move s toward m_T.rightBound()
+            (*m_timeMap)(m_T.rightBound(), s);
+            if (contain_nan(s)) {
+                DREAL_LOG_INFO << "contractor_capd_bwd_full: contain NaN";
+            }
+
+            if (m_T.leftBound() <= m_timeMap->getCurrentTime().rightBound()) {
+                //                     [     T      ]
+                // [     current Time     ]
+                bool invariantViolated = compute_enclosures(*m_solver, prevTime, m_T, m_grid_size, enclosures);
+                if (invariantViolated) {
+                    // TODO(soonhok): invariant
+                    DREAL_LOG_INFO << "contractor_capd_bwd_full: invariant violated";
+                    // ret = ODE_result::SAT;
+                    break;
+                }
+            }
+            prevTime = m_timeMap->getCurrentTime();
+        } while (/*!invariantViolated &&*/ !m_timeMap->completed());
+        if (filter(enclosures, m_X_0, m_T)) {
+            // SAT
+            update_box_with_ivector(b.back(), ic.get_vars_0(), m_X_0);  // X_t
+            // TODO(soonhok): Here we still assume that time_0 = zero.
+            b.back()[ic.get_time_t()] = ibex::Interval(m_T.leftBound(), m_T.rightBound());
+        } else {
+            // UNSAT
+            b.back().set_empty();
+        }
+        DREAL_LOG_INFO << "m_X_0 : " << m_X_0;
+        DREAL_LOG_INFO << "m_X_t : " << m_X_t;
+        DREAL_LOG_INFO << "m_T   : " << m_T;
+    } catch (capd::intervals::IntervalError<double> & e) {
+        throw contractor_exception(e.what());
+    } catch (capd::ISolverException & e) {
+        throw contractor_exception(e.what());
+    }
+    vector<bool> diff_dims = b.back().diff_dims(b.front());
+    for (unsigned i = 0; i < diff_dims.size(); i++) {
+        if (diff_dims[i]) {
+            m_output.add(i);
+        }
+    }
+
+    // ======= Proof =======
+    if (config.nra_proof) {
+        ostringstream ss;
+        Enode const * const e = m_ctr->get_enode();
+        ss << (e->getPolarity() == l_False ? "!" : "") << e;
+        output_pruning_step(config.nra_proof_out, b.front(), b.back(), config.nra_readable_proof, ss.str());
+    }
+
+    b.swap();
 }
 
 ostream & contractor_capd_bwd_full::display(ostream & out) const {
