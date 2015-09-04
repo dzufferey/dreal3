@@ -485,7 +485,6 @@ void set_params(T & f, box const & b, integral_constraint const & ic) {
 }
 
 void contractor_capd_fwd_full::prune(fbbox & b, SMTConfig & config) const {
-    assert(false); //TODO
     b.back() = b.front();
     DREAL_LOG_DEBUG << "contractor_capd_fwd_full::prune";
     integral_constraint const & ic = m_ctr->get_ic();
