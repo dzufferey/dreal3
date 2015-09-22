@@ -268,13 +268,13 @@ void opensmt_define_ode( opensmt_context c, const char * flowname, opensmt_expr 
   assert( c );
   OpenSMTContext * c_ = static_cast< OpenSMTContext * >( c );
   OpenSMTContext & context = *c_;
-  vector<pair<string, Enode *> *> odes;
+  vector<pair<string, Enode *>> odes;
   for (unsigned i = 0; i < n; i++) {
       Enode * var = static_cast<Enode *>(vars[i]);
       Enode * rhs = static_cast<Enode *>(rhses[i]);
-      odes.push_back(new pair<string, Enode*>(var->getCar()->getName(), rhs));
+      odes.push_back(make_pair(var->getCar()->getName(), rhs));
   }
-  context.DefineODE(flowname, &odes);
+  context.DefineODE(flowname, odes);
 }
 
 opensmt_expr opensmt_mk_integral ( opensmt_context c, opensmt_expr * vars_t,
@@ -285,7 +285,7 @@ opensmt_expr opensmt_mk_integral ( opensmt_context c, opensmt_expr * vars_t,
   OpenSMTContext * c_ = static_cast< OpenSMTContext * >( c );
   OpenSMTContext & context = *c_;
   list< Enode * > args_t, args_0;
-  for ( unsigned i = 0 ; i < n ; i ++ ) {
+  for ( int i = n-1 ; i >= 0 ; --i ) {
     Enode * arg_t = static_cast< Enode * >( vars_t[ i ] );
     Enode * arg_0 = static_cast< Enode * >( vars_0[ i ] );
     args_t.push_back( arg_t );
@@ -419,17 +419,16 @@ opensmt_expr opensmt_mk_forall( opensmt_context c, opensmt_expr * varlist, unsig
   assert( c );
   OpenSMTContext * c_ = static_cast< OpenSMTContext * >( c );
   OpenSMTContext & context = *c_;
-  vector<pair<string, Snode *>*>* sorted_var_list = new vector<pair<string, Snode *>*>();
+  vector<pair<string, Snode *>> sorted_var_list;
   for (unsigned i = 0; i < n; ++i) {
       opensmt_expr var = varlist[i];
       Enode * e = static_cast<Enode*>(var);
       Snode * sort = e->getSort();
       string name = e->getCar()->getName();
-      sorted_var_list->push_back(new pair<string, Snode *>(name, sort));
+      sorted_var_list.push_back(make_pair(name, sort));
   }
   Enode * e_body = static_cast<Enode*>(body);
   Enode * res = context.mkForall(sorted_var_list, e_body);
-  delete sorted_var_list;
   return static_cast< void * >( res );
 }
 
@@ -691,6 +690,15 @@ opensmt_expr opensmt_mk_log( opensmt_context c, opensmt_expr arg)
   OpenSMTContext & context = *c_;
   Enode * args_list = context.mkCons( static_cast< Enode * >( arg ) );
   Enode * res = context.mkLog( static_cast< Enode * >( args_list ) );
+  return static_cast< void * >( res );
+}
+
+opensmt_expr opensmt_mk_sqrt( opensmt_context c, opensmt_expr arg)
+{
+  OpenSMTContext * c_ = static_cast< OpenSMTContext * >( c );
+  OpenSMTContext & context = *c_;
+  Enode * args_list = context.mkCons( static_cast< Enode * >( arg ) );
+  Enode * res = context.mkSqrt( static_cast< Enode * >( args_list ) );
   return static_cast< void * >( res );
 }
 

@@ -2,11 +2,11 @@ cmake_minimum_required(VERSION 2.8.7)
 project(DREAL C CXX)
 set(DREAL_VERSION_MAJOR 3)
 set(DREAL_VERSION_MINOR 15)
-set(DREAL_VERSION_PATCH 08.02)
+set(DREAL_VERSION_PATCH 08.03)
 set(PACKAGE_NAME dReal)
 set(PACKAGE_VERSION "${DREAL_VERSION_MAJOR}.${DREAL_VERSION_MINOR}.${DREAL_VERSION_PATCH}")
 set(PACKAGE_STRING "${PACKAGE_NAME} ${PACKAGE_VERSION}")
-set(PACKAGE_BUGREPORT "http://github.com/dreal/dreal/issues")
+set(PACKAGE_BUGREPORT "http://github.com/dreal/dreal3/issues")
 set(BUG_REPORT_URL "${PACKAGE_BUGREPORT}" CACHE STRING "Default URL where bug reports are to be submitted.")
 
 set(CMAKE_COLOR_MAKEFILE ON)
@@ -226,8 +226,7 @@ if(SUPPORT_ODE)
   ExternalProject_Add(CAPD4
     DEPENDS FILIB
     PREFIX ${CMAKE_CURRENT_BINARY_DIR}/external
-    GIT_REPOSITORY https://github.com/soonhokong/capd4.git
-    #dreal-deps/capdDynSys-4.0.git
+    GIT_REPOSITORY https://github.com/dreal-deps/capdDynSys-4.0.git
     GIT_TAG master
     UPDATE_COMMAND ${GIT_EXECUTABLE} fetch --all
            COMMAND ${GIT_EXECUTABLE} reset --hard origin/master
@@ -266,7 +265,7 @@ if(MINGW)
     CONFIGURE_COMMAND CXX=${CMAKE_CXX_COMPILER} CC=${CMAKE_C_COMPILER} ./configure --build=x86_64-w64-mingw32 --prefix=${CMAKE_CURRENT_BINARY_DIR} ${SHARED_LIB_CONFIG_COMMAND} --enable-static --with-blas=BUILD --with-lapack=BUILD --disable-bzlib --disable-zlib
     BUILD_COMMAND make -j
     BUILD_IN_SOURCE 1
-    INSTALL_COMMAND make install)
+    INSTALL_COMMAND mkdir -p ${CMAKE_CURRENT_BINARY_DIR}/include/coin && mkdir -p ${CMAKE_CURRENT_BINARY_DIR}/share/coin/doc/CoinUtils && make install)
 else(MINGW)
   ExternalProject_Add(CLP
     PREFIX ${CMAKE_CURRENT_BINARY_DIR}/external
@@ -277,7 +276,7 @@ else(MINGW)
     CONFIGURE_COMMAND CXX=${CMAKE_CXX_COMPILER} CC=${CMAKE_C_COMPILER} ./configure --prefix=${CMAKE_CURRENT_BINARY_DIR} ${SHARED_LIB_CONFIG_COMMAND} --enable-static --with-blas=BUILD --with-lapack=BUILD --disable-bzlib --disable-zlib
     BUILD_COMMAND make -j
     BUILD_IN_SOURCE 1
-    INSTALL_COMMAND make install)
+    INSTALL_COMMAND mkdir -p ${CMAKE_CURRENT_BINARY_DIR}/include/coin && mkdir -p ${CMAKE_CURRENT_BINARY_DIR}/share/coin/doc/CoinUtils && make install)
 endif()
 set(EXTRA_LIBS "ClpSolver" "Clp" "CoinUtils" "m" ${EXTRA_LIBS})
 
@@ -314,20 +313,6 @@ ExternalProject_Add(CATCH
   BUILD_COMMAND echo "nothing to build"
   BUILD_IN_SOURCE 1
   INSTALL_COMMAND mkdir -p ${CMAKE_CURRENT_BINARY_DIR}/include/catch && cp -v single_include/catch.hpp ${CMAKE_CURRENT_BINARY_DIR}/include/catch/)
-
-################################################################
-# External: PEGTL (parsing)
-################################################################
-ExternalProject_Add(PEGTL
-  PREFIX ${CMAKE_CURRENT_BINARY_DIR}/external
-  GIT_REPOSITORY https://github.com/dreal-deps/PEGTL.git
-  GIT_TAG master
-  UPDATE_COMMAND ${GIT_EXECUTABLE} fetch --all
-         COMMAND ${GIT_EXECUTABLE} reset --hard origin/master
-  CONFIGURE_COMMAND echo "nothing to configure"
-  BUILD_COMMAND echo "nothing to build"
-  BUILD_IN_SOURCE 1
-  INSTALL_COMMAND mkdir -p ${CMAKE_CURRENT_BINARY_DIR}/include && cp -r -v pegtl.hh pegtl ${CMAKE_CURRENT_BINARY_DIR}/include/)
 
 ################################################################
 # External: Easylogging++
@@ -414,7 +399,7 @@ configure_file("${DREAL_SOURCE_DIR}/config.h.in" "${DREAL_BINARY_DIR}/config.h")
 include_directories("${DREAL_BINARY_DIR}")
 add_subdirectory(opensmt)
 ################################################################
-# PARSER
+# PARSER: SMT2
 ################################################################
 # Create custom command for flex/lex (note the outputs)
 ADD_CUSTOM_COMMAND(
@@ -439,6 +424,81 @@ ADD_CUSTOM_COMMAND(
 SET_SOURCE_FILES_PROPERTIES(${DREAL_BINARY_DIR}/opensmt/parsers/smt2/smt2parser.cc GENERATED)
 SET_SOURCE_FILES_PROPERTIES(${DREAL_BINARY_DIR}/opensmt/parsers/smt2/smt2lexer.cc GENERATED)
 ################################################################
+# PARSER: DOP
+################################################################
+# Create custom command for flex/lex (note the outputs)
+ADD_CUSTOM_COMMAND(
+  COMMAND ${FLEX_EXECUTABLE}
+  ARGS -o ${DREAL_BINARY_DIR}/tools/dop/parsers/dop/doplexer.cc -Pdop
+  ${DREAL_SOURCE_DIR}/tools/dop/parsers/dop/doplexer.ll
+  DEPENDS ${DREAL_SOURCE_DIR}/tools/dop/parsers/dop/doplexer.ll
+  OUTPUT  ${DREAL_BINARY_DIR}/tools/dop/parsers/dop/doplexer.cc
+  )
+
+# Create custom command for bison/yacc (note the DEPENDS)
+ADD_CUSTOM_COMMAND(
+  COMMAND ${BISON_EXECUTABLE}
+  ARGS -d --name-prefix=dop -y ${DREAL_SOURCE_DIR}/tools/dop/parsers/dop/dopparser.yy
+  -o ${DREAL_BINARY_DIR}/tools/dop/parsers/dop/dopparser.cc
+  DEPENDS ${DREAL_BINARY_DIR}/tools/dop/parsers/dop/doplexer.cc
+  DEPENDS ${DREAL_SOURCE_DIR}/tools/dop/parsers/dop/dopparser.yy
+  OUTPUT  ${DREAL_BINARY_DIR}/tools/dop/parsers/dop/dopparser.cc
+  )
+# Since parser.c does not exists yet when cmake is run, mark
+# it as generated
+SET_SOURCE_FILES_PROPERTIES(${DREAL_BINARY_DIR}/tools/dop/parsers/dop/dopparser.cc GENERATED)
+SET_SOURCE_FILES_PROPERTIES(${DREAL_BINARY_DIR}/tools/dop/parsers/dop/doplexer.cc GENERATED)
+################################################################
+# PARSER: BARON
+################################################################
+# Create custom command for flex/lex (note the outputs)
+ADD_CUSTOM_COMMAND(
+  COMMAND ${FLEX_EXECUTABLE}
+  ARGS -o ${DREAL_BINARY_DIR}/tools/dop/parsers/baron/baronlexer.cc -Pbaron
+  ${DREAL_SOURCE_DIR}/tools/dop/parsers/baron/baronlexer.ll
+  DEPENDS ${DREAL_SOURCE_DIR}/tools/dop/parsers/baron/baronlexer.ll
+  OUTPUT  ${DREAL_BINARY_DIR}/tools/dop/parsers/baron/baronlexer.cc
+  )
+
+# Create custom command for bison/yacc (note the DEPENDS)
+ADD_CUSTOM_COMMAND(
+  COMMAND ${BISON_EXECUTABLE}
+  ARGS -d --name-prefix=baron -y ${DREAL_SOURCE_DIR}/tools/dop/parsers/baron/baronparser.yy
+  -o ${DREAL_BINARY_DIR}/tools/dop/parsers/baron/baronparser.cc
+  DEPENDS ${DREAL_BINARY_DIR}/tools/dop/parsers/baron/baronlexer.cc
+  DEPENDS ${DREAL_SOURCE_DIR}/tools/dop/parsers/baron/baronparser.yy
+  OUTPUT  ${DREAL_BINARY_DIR}/tools/dop/parsers/baron/baronparser.cc
+  )
+# Since parser.c does not exists yet when cmake is run, mark
+# it as generated
+SET_SOURCE_FILES_PROPERTIES(${DREAL_BINARY_DIR}/tools/dop/parsers/baron/baronparser.cc GENERATED)
+SET_SOURCE_FILES_PROPERTIES(${DREAL_BINARY_DIR}/tools/dop/parsers/baron/baronlexer.cc GENERATED)
+################################################################
+# PARSER: BCH
+################################################################
+# Create custom command for flex/lex (note the outputs)
+ADD_CUSTOM_COMMAND(
+  COMMAND ${FLEX_EXECUTABLE}
+  ARGS -o ${DREAL_BINARY_DIR}/tools/dop/parsers/bch/bchlexer.cc -Pbch
+  ${DREAL_SOURCE_DIR}/tools/dop/parsers/bch/bchlexer.ll
+  DEPENDS ${DREAL_SOURCE_DIR}/tools/dop/parsers/bch/bchlexer.ll
+  OUTPUT  ${DREAL_BINARY_DIR}/tools/dop/parsers/bch/bchlexer.cc
+  )
+
+# Create custom command for bison/yacc (note the DEPENDS)
+ADD_CUSTOM_COMMAND(
+  COMMAND ${BISON_EXECUTABLE}
+  ARGS -d --name-prefix=bch -y ${DREAL_SOURCE_DIR}/tools/dop/parsers/bch/bchparser.yy
+  -o ${DREAL_BINARY_DIR}/tools/dop/parsers/bch/bchparser.cc
+  DEPENDS ${DREAL_BINARY_DIR}/tools/dop/parsers/bch/bchlexer.cc
+  DEPENDS ${DREAL_SOURCE_DIR}/tools/dop/parsers/bch/bchparser.yy
+  OUTPUT  ${DREAL_BINARY_DIR}/tools/dop/parsers/bch/bchparser.cc
+  )
+# Since parser.c does not exists yet when cmake is run, mark
+# it as generated
+SET_SOURCE_FILES_PROPERTIES(${DREAL_BINARY_DIR}/tools/dop/parsers/bch/bchparser.cc GENERATED)
+SET_SOURCE_FILES_PROPERTIES(${DREAL_BINARY_DIR}/tools/dop/parsers/bch/bchlexer.cc GENERATED)
+################################################################
 add_subdirectory(icp)
 add_subdirectory(dsolvers)
 add_subdirectory(util)
@@ -456,7 +516,6 @@ else()
   add_library(dop ${DOP_SRCS})
 endif()
 
-add_dependencies(dop PEGTL)
 add_dependencies(dop IBEX)
 add_dependencies(dop NLOPT)
 add_dependencies(dop EASYLOGGINGPP)
@@ -578,7 +637,7 @@ endif()
 add_custom_target(update_pkgs
   COMMAND echo "Update External Packages"
   COMMAND ${CMAKE_BUILD_TOOL}
-  DEPENDS update_clp update_filib update_ibex update_nlopt update_capd update_catch update_pegtl update_easyloggingpp update_ezoptionparser update_json)
+  DEPENDS update_clp update_filib update_ibex update_nlopt update_capd update_catch update_easyloggingpp update_ezoptionparser update_json)
 
 add_custom_target(update_clp
   COMMAND git fetch --all && git reset --hard origin/master && make install -j
@@ -604,10 +663,6 @@ add_custom_target(update_capd
 add_custom_target(update_catch
   COMMAND git fetch --all && git reset --hard origin/master && mkdir -p ${CMAKE_CURRENT_BINARY_DIR}/include/catch && cp -v single_include/catch.hpp ${CMAKE_CURRENT_BINARY_DIR}/include/catch/
   WORKING_DIRECTORY ${DREAL_BINARY_DIR}/external/src/CATCH)
-
-add_custom_target(update_pegtl
-  COMMAND git fetch --all && git reset --hard origin/master && mkdir -p ${CMAKE_CURRENT_BINARY_DIR}/include && cp -v -r pegtl.hh pegtl ${CMAKE_CURRENT_BINARY_DIR}/include/
-  WORKING_DIRECTORY ${DREAL_BINARY_DIR}/external/src/PEGTL)
 
 add_custom_target(update_easyloggingpp
   COMMAND git fetch --all && git reset --hard origin/master && mkdir -p ${CMAKE_CURRENT_BINARY_DIR}/include/easylogingpp && cp -v src/easylogging++.h ${CMAKE_CURRENT_BINARY_DIR}/include/easylogingpp/

@@ -55,14 +55,14 @@ void smt2error( const char * s )
   char  *                            str;
   vector< string > *                 str_list;
   pair<string, Enode *> *            ode;
-  vector<pair<string, Enode *> * > * ode_list;
+  vector<pair<string, Enode *> > *   ode_list;
   Enode *                            enode;
   Snode *                            snode;
   std::string *                      string_ptr;
   list< Snode * > *                  snode_list;
   map< Enode *, Enode * > *          binding_list;
   pair<string, Snode *> *            sorted_var;
-  vector< pair<string, Snode *> * > *  sorted_var_list;
+  vector< pair<string, Snode *> > *  sorted_var_list;
 }
 
 %error-verbose
@@ -116,12 +116,14 @@ void smt2error( const char * s )
 script: command_list
 
 ode_list: ode_list ode
-          { $1->push_back($2);
+          { $1->push_back(*($2));
             $$ = $1;
+            delete $2;
           }
         | ode
-          { $$ = new vector<pair<string, Enode*>*>;
-            $$->push_back( $1 );
+          { $$ = new vector<pair<string, Enode*>>;
+            $$->push_back( *($1) );
+            delete $1;
           }
 ;
 ode: '(' TK_EQ TK_DDT TK_LB identifier TK_RB term ')'  {
@@ -216,7 +218,7 @@ command: '(' TK_SETLOGIC symbol ')'
        /* Added for dReal2. */
        | '(' TK_DEFINEODE identifier '(' ode_list ')' ')'
          {
-           parser_ctx->DefineODE($3, $5);
+           parser_ctx->DefineODE($3, *($5));
            free( $3 );
            delete $5;
          }
@@ -526,12 +528,12 @@ term: spec_const
       { $$ = parser_ctx->mkForallT($3, $5, $6, $8); }
     | '(' TK_FORALL '(' sorted_var_list ')' term ')'
       {
-          $$ = parser_ctx->mkForall($4, $6);
+          $$ = parser_ctx->mkForall(*($4), $6);
           delete $4;
       }
     | '(' TK_EXISTS '(' sorted_var_list ')' term ')'
       {
-          $$ = parser_ctx->mkExists($4, $6);
+          $$ = parser_ctx->mkExists(*($4), $6);
           delete $4;
       }
     /*
@@ -695,12 +697,14 @@ sort_list: sort_list sort
          ;
 
 sorted_var_list: sorted_var_list sorted_var {
-    $1->push_back($2);
+    $1->push_back(*($2));
+    delete $2;
     $$ = $1;
-           }
+  }
 | sorted_var {
-     $$ = new vector<pair<string, Snode*>*>;
-     $$->push_back( $1 );
+     $$ = new vector<pair<string, Snode*>>;
+     $$->push_back( *($1) );
+     delete $1;
   };
 
 var_binding_list: var_binding_list '(' TK_SYM term ')'

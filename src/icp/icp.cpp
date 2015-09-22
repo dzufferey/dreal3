@@ -190,12 +190,12 @@ box ncbt_icp::solve(box b, contractor const & ctc, SMTConfig & config) {
 }
 
 bool random_icp::random_bool() {
-    static thread_local std::mt19937_64 rg(std::chrono::system_clock::now().time_since_epoch().count());
+    static std::mt19937_64 rg(std::chrono::system_clock::now().time_since_epoch().count());
     std::uniform_real_distribution<double> m_dist(0, 1);
     return m_dist(rg) >= 0.5;
 }
 
-box random_icp::solve(box b, contractor const & ctc, SMTConfig & config ) {
+box random_icp::solve(box b, contractor const & ctc, SMTConfig & config, double const precision ) {
     vector<box> solns;
     vector<box> box_stack;
     box_stack.push_back(b);
@@ -211,7 +211,7 @@ box random_icp::solve(box b, contractor const & ctc, SMTConfig & config ) {
             // Do nothing
         }
         if (!fbb.front().is_empty()) {
-            tuple<int, box, box> splits = fbb.front().bisect(config.nra_precision);
+            tuple<int, box, box> splits = fbb.front().bisect(precision);
             int const i = get<0>(splits);
             if (i >= 0) {
                 box const & first  = get<1>(splits);

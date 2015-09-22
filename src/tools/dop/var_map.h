@@ -39,6 +39,8 @@ public:
     double pop_num();
     void push_num(double const n);
     void push_id(std::string const & name);
+    void set_lb();
+    void set_ub();
     void push_var_decl();
     Enode * find(std::string const & name) const;
     unordered_map<std::string, Enode*> get_var_map() const { return m_map; }

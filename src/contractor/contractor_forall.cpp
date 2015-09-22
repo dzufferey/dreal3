@@ -118,7 +118,8 @@ void contractor_forall::prune(fbbox & b, SMTConfig & config) const {
     // DREAL_LOG_DEBUG << "subst = " << subst << endl;
     nonlinear_constraint const * const ctr = new nonlinear_constraint(e, p, subst);
     contractor ctc = mk_contractor_ibex_fwdbwd(b.front(), ctr);
-    box old_box(b.front());
+    static box old_box(b.front());
+    old_box = b.front();
     //b.back() = b.front();
     DREAL_LOG_DEBUG << "prune using " << ctc << endl;
     ctc.prune(b, config);
@@ -133,7 +134,7 @@ void contractor_forall::prune(fbbox & b, SMTConfig & config) const {
         box counter_example(b.front(), forall_vars); //TODO can't we reuse extended_box
         contractor not_ctc = mk_contractor_ibex_fwdbwd(counter_example, not_ctr);
         DREAL_LOG_DEBUG << "icp with " << not_ctc << endl;
-        counter_example = random_icp::solve(counter_example, not_ctc, config);
+        counter_example = random_icp::solve(counter_example, not_ctc, config, config.nra_precision);
         if (!counter_example.is_empty()) {
             // =========================================================
             // Step 4.

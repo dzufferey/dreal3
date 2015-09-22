@@ -62,7 +62,9 @@ ostream & operator<<(ostream & out, contractor_cell const & c) {
 
 contractor_seq::contractor_seq(initializer_list<contractor> const & l)
     : contractor_cell(contractor_kind::SEQ), m_vec(l) { }
-
+contractor_seq::contractor_seq(vector<contractor> const & v)
+    : contractor_cell(contractor_kind::SEQ), m_vec(v) {
+}
 contractor_seq::contractor_seq(contractor const & c, vector<contractor> const & v)
     : contractor_cell(contractor_kind::SEQ), m_vec(1, c) {
     copy(v.begin(), v.end(), back_inserter(m_vec));
@@ -144,6 +146,31 @@ ostream & contractor_try_or::display(ostream & out) const {
     return out;
 }
 
+contractor_join::contractor_join(contractor const & c1, contractor const & c2)
+    : contractor_cell(contractor_kind::JOIN), m_c1(c1), m_c2(c2) { }
+void contractor_join::prune(fbbox & b, SMTConfig & config) const {
+    DREAL_LOG_DEBUG << "contractor_join::prune";
+    static box b1(b.front());
+    b1 = b.front();
+    m_c1.prune(b, config);
+    b.swap();
+    b.front() = b1;
+    b1 = b.back();
+    m_c2.prune(b, config);
+    m_input  = m_c1.input();
+    m_input.union_with(m_c2.input());
+    unordered_set<constraint const *> const & used_ctrs1 = m_c1.used_constraints();
+    unordered_set<constraint const *> const & used_ctrs2 = m_c2.used_constraints();
+    m_used_constraints.insert(used_ctrs1.begin(), used_ctrs1.end());
+    m_used_constraints.insert(used_ctrs2.begin(), used_ctrs2.end());
+    b.front().hull(b1);
+}
+ostream & contractor_join::display(ostream & out) const {
+    out << "contractor_join("
+        << m_c1 << ", "
+        << m_c2 << ")";
+    return out;
+}
 
 contractor_ite::contractor_ite(function<bool(box const &)> guard, contractor const & c_then, contractor const & c_else)
     : contractor_cell(contractor_kind::ITE), m_guard(guard), m_c_then(c_then), m_c_else(c_else) { }
@@ -358,7 +385,7 @@ void contractor_cache::prune(fbbox & b, SMTConfig & config) const {
     m_input  = ibex::BitSet::empty(b.front().size());
     m_output = ibex::BitSet::empty(b.front().size());
     // TODO(soonhok): implement this
-    thread_local static unordered_map<box, box> cache;
+    static unordered_map<box, box> cache;
     auto const it = cache.find(b.front());
     if (it == cache.cend()) {
         // Not Found
@@ -462,6 +489,9 @@ ostream & contractor_aggressive::display(ostream & out) const {
 contractor mk_contractor_seq(initializer_list<contractor> const & l) {
     return contractor(make_shared<contractor_seq>(l));
 }
+contractor mk_contractor_seq(vector<contractor> const & v) {
+    return contractor(make_shared<contractor_seq>(v));
+}
 contractor mk_contractor_seq(contractor const & c, vector<contractor> const & v) {
     return contractor(make_shared<contractor_seq>(c, v));
 }
@@ -473,6 +503,9 @@ contractor mk_contractor_try(contractor const & c) {
 }
 contractor mk_contractor_try_or(contractor const & c1, contractor const & c2) {
     return contractor(make_shared<contractor_try_or>(c1, c2));
+}
+contractor mk_contractor_join(contractor const & c1, contractor const & c2) {
+    return contractor(make_shared<contractor_join>(c1, c2));
 }
 contractor mk_contractor_ite(function<bool(box const &)> guard, contractor const & c_then, contractor const & c_else) {
     return contractor(make_shared<contractor_ite>(guard, c_then, c_else));

@@ -101,7 +101,7 @@ public:
   void          DeclareSort          ( const char *, int );          // Declares a new sort
   void          DeclareFun           ( const char *, Snode * );      // Declares a new function symbol
   void          DeclareFun           ( const char *, Snode * , const char * p);  // Declares a new function symbol
-  void          DefineODE            ( char const *, vector<pair<string, Enode *> *> * odes );      // Define an ODE
+  void          DefineODE            ( char const *, vector<pair<string, Enode *>> const & odes );      // Define an ODE
 
   void          Push                 ( );
   void          Pop                  ( );
@@ -200,13 +200,11 @@ public:
       assert(flowname);
       return egraph.mkIntegral(time_0, time_t, vec_0, vec_t, flowname);
   }
-  inline Enode * mkForall ( vector<pair<string, Snode *>*>* sorted_var_list, Enode * e) {
-      assert(sorted_var_list);
+  inline Enode * mkForall ( vector<pair<string, Snode *>> const & sorted_var_list, Enode * e) {
       assert(e);
       return egraph.mkForall(sorted_var_list, e);
   }
-  inline Enode * mkExists ( vector<pair<string, Snode *>*>* sorted_var_list, Enode * e) {
-      assert(sorted_var_list);
+  inline Enode * mkExists ( vector<pair<string, Snode *>> const & sorted_var_list, Enode * e) {
       assert(e);
       return egraph.mkExists(sorted_var_list, e);
   }
@@ -217,6 +215,10 @@ public:
 
   inline void setPrecision (const double d ) {
       config.nra_precision = d;
+  }
+
+  inline void setLocalOpt (const bool b ) {
+      config.nra_local_opt = b;
   }
 
   inline void setMaxPrecision ( const double d )
@@ -277,12 +279,22 @@ public:
   //
   inline void       setPolarityMode ( unsigned m ) { assert( m <= 6 ); config.sat_polarity_mode = m; }
   inline void       setVerbose(bool b) {
-      config.setVerbosityInfoLevel();
+      if (b) {
+          config.setVerbosityInfoLevel();
+      }
       config.nra_verbose = b;
   }
   inline void       setDebug(bool b) {
-      config.setVerbosityDebugLevel();
+      if (b) {
+          config.setVerbosityDebugLevel();
+      }
       config.nra_debug = b;
+  }
+  inline void       setPolytope(bool b) {
+      config.nra_polytope = b;
+  }
+  inline void       setShrinkForDop(bool b) {
+      config.nra_shrink_for_dop = b;
   }
   inline void       setStat(bool b) { config.nra_use_stat = b; }
 

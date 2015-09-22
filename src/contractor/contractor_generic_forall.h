@@ -39,12 +39,12 @@ namespace dreal {
 class contractor_generic_forall : public contractor_cell {
 private:
     generic_forall_constraint const * const m_ctr;
-    box find_counterexample(box const & b, std::unordered_set<Enode*> const & forall_vars, std::vector<Enode*> const & vec, bool const p, SMTConfig & config) const;
+    box find_CE(box const & b, std::unordered_set<Enode*> const & forall_vars, std::vector<Enode*> const & vec, bool const p, SMTConfig & config) const;
+    void handle(fbbox & b, Enode * body, bool const p, SMTConfig & config) const;
     std::vector<Enode *> elist_to_vector(Enode * e) const;
-    void handle(fbbox & b, std::unordered_set<Enode *> const & forall_vars, Enode * body, bool const p, SMTConfig & config) const;
-    void handle_disjunction(fbbox & b, std::unordered_set<Enode *> const & forall_vars, std::vector<Enode *> const & vec, bool const p, SMTConfig & config) const;
-    void handle_conjunction(fbbox & b, std::unordered_set<Enode *> const & forall_vars, std::vector<Enode *> const & vec, bool const p, SMTConfig & config) const;
-    void handle_atomic(fbbox & b, std::unordered_set<Enode *> const & forall_vars, Enode * body, bool const p, SMTConfig & config) const;
+    void handle_disjunction(fbbox & b, std::vector<Enode *> const & vec, bool const p, SMTConfig & config) const;
+    void handle_conjunction(fbbox & b, std::vector<Enode *> const & vec, bool const p, SMTConfig & config) const;
+    void handle_atomic(fbbox & b, Enode * body, bool const p, SMTConfig & config) const;
 
 public:
     contractor_generic_forall(box const & b, generic_forall_constraint const * const ctr);
