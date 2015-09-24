@@ -578,6 +578,7 @@ add_subdirectory(dsolvers)
 add_subdirectory(util)
 add_subdirectory(constraint)
 add_subdirectory(contractor)
+add_subdirectory(interpolation)
 add_subdirectory(tools/dop)
 
 SET(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${DREAL_BINARY_DIR}/lib")
@@ -639,13 +640,14 @@ endif()
 # Include style check
 include(StyleCheck)
 file(GLOB_RECURSE DREAL_SOURCES
-  ${DREAL_SOURCE_DIR}/contractor/*.cpp ${DREAL_SOURCE_DIR}/contractor/*.h
-  ${DREAL_SOURCE_DIR}/constraint/*.cpp ${DREAL_SOURCE_DIR}/constraint/*.h
-  ${DREAL_SOURCE_DIR}/util/*.cpp       ${DREAL_SOURCE_DIR}/util/*.h
-  ${DREAL_SOURCE_DIR}/icp/*.cpp        ${DREAL_SOURCE_DIR}/icp/*.h
-  ${DREAL_SOURCE_DIR}/dsolvers/*.cpp   ${DREAL_SOURCE_DIR}/dsolvers/*.h
-  ${DREAL_SOURCE_DIR}/tests/*.cpp      ${DREAL_SOURCE_DIR}/tests/*.h
-  ${DREAL_SOURCE_DIR}/tools/dop/*.cpp  ${DREAL_SOURCE_DIR}/tools/dop/*.h)
+  ${DREAL_SOURCE_DIR}/contractor/*.cpp      ${DREAL_SOURCE_DIR}/contractor/*.h
+  ${DREAL_SOURCE_DIR}/constraint/*.cpp      ${DREAL_SOURCE_DIR}/constraint/*.h
+  ${DREAL_SOURCE_DIR}/util/*.cpp            ${DREAL_SOURCE_DIR}/util/*.h
+  ${DREAL_SOURCE_DIR}/icp/*.cpp             ${DREAL_SOURCE_DIR}/icp/*.h
+  ${DREAL_SOURCE_DIR}/interpolation/*.cpp   ${DREAL_SOURCE_DIR}/interpolation/*.h
+  ${DREAL_SOURCE_DIR}/dsolvers/*.cpp        ${DREAL_SOURCE_DIR}/dsolvers/*.h
+  ${DREAL_SOURCE_DIR}/tests/*.cpp           ${DREAL_SOURCE_DIR}/tests/*.h
+  ${DREAL_SOURCE_DIR}/tools/dop/*.cpp       ${DREAL_SOURCE_DIR}/tools/dop/*.h)
 add_style_check_target(style "${DREAL_SOURCES}")
 add_test(NAME style_check COMMAND ${DREAL_SOURCE_DIR}/cmake/Modules/cpplint.py "--filter=-readability/casting,-whitespace/line_length,-build/header_guard,-whitespace/indent,-runtime/references,-build/c++11,-runtime/int" ${DREAL_SOURCES})
 

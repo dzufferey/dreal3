@@ -56,24 +56,30 @@ void output_pruning_step(ostream & out, box const & old_box, box const & new_box
     }
 }
 
+//determine where the split happens and the direction
+std::tuple<double,bool> find_split(box const & first_box, box const & second_box, int variable) {
+    auto const fst_value = first_box.get_value(variable);
+    auto const snd_value = second_box.get_value(variable);
+    double split;
+    bool gt;
+    if (fst_value.ub() <= snd_value.lb() ) {
+        assert( fst_value.lb < snd_value.ub() );
+        split = fst_value.ub();
+        gt = false;
+    } else {
+        assert( snd_value.lb < fst_value.ub() );
+        split = fst_value.lb();
+        gt = true;
+    }
+    return std::make_pair(split, gt);
+}
 
 void output_split_step(std::ostream & out, box const & old_box,
                        box const & first_box, box const & second_box,
                        bool const readable_proof, int variable) {
-  //determine where the split happens and the direction
-  auto const fst_value = first_box.get_value(variable);
-  auto const snd_value = second_box.get_value(variable);
-  double split;
-  bool gt;
-  if (fst_value.ub() <= snd_value.lb() ) {
-    assert( fst_value.lb < snd_value.ub() );
-    split = fst_value.ub();
-    gt = false;
-  } else {
-    assert( snd_value.lb < fst_value.ub() );
-    split = fst_value.lb();
-    gt = true;
-  }
+  auto const p = find_split(first_box, second_box, variable);
+  double split = get<0>(p);
+  bool gt = get<1>(p);
   //printing
   out << "[branching] on (";
   if (gt) {
