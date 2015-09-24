@@ -41,7 +41,6 @@ using std::to_string;
 using std::unordered_map;
 using std::ostream;
 
-#ifdef PYTHONLIBS_FOUND
 string generate_py_visualization_string_3d(Enode * const f, unordered_map<string, Enode *> var_map, unsigned const num_of_cells, string const & minimum_name) {
     Enode * minimum = var_map[minimum_name];
     var_map.erase(minimum_name);
@@ -210,6 +209,7 @@ ax = fig.add_subplot(111)
     return python_code;
 }
 
+#ifdef PYTHONLIBS_FOUND
 void eval_python_string(string const & s) {
     Py_Initialize();
     PyRun_SimpleString(s.c_str());
