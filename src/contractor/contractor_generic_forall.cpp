@@ -368,14 +368,23 @@ box find_CE_via_underapprox(box const & b, unordered_set<Enode*> const & forall_
     if (config.nra_shrink_for_dop) {
         counterexample = shrink_for_dop(counterexample);
     }
+    bool return_empty = false;
     for (Enode * e : vec) {
         lbool polarity = p ? l_False : l_True;
         if (e->isNot()) {
             e = e->get1st();
             polarity = !polarity;
         }
+        if (e->isOr() || e->isAnd()) {
+            return_empty = true;
+            break;
+        }
         nonlinear_constraint ctr(e, polarity);
         auto numctr = ctr.get_numctr();
+        if (!numctr) {
+            return_empty = false;
+            break;
+        }
 
         // Construct iv from box b
         auto & var_array = ctr.get_var_array();
@@ -384,23 +393,25 @@ box find_CE_via_underapprox(box const & b, unordered_set<Enode*> const & forall_
             iv[i] = counterexample[var_array[i].name];
         }
         if (numctr->op == ibex::CmpOp::GT || numctr->op == ibex::CmpOp::GEQ) {
-            numctr->f.ibwd(ibex::Interval(-config.nra_precision, POS_INFINITY), iv);
+            numctr->f.ibwd(ibex::Interval(0.0, POS_INFINITY), iv);
         } else if (numctr->op == ibex::CmpOp::LT || numctr->op == ibex::CmpOp::LEQ) {
-            numctr->f.ibwd(ibex::Interval(NEG_INFINITY, config.nra_precision), iv);
+            numctr->f.ibwd(ibex::Interval(NEG_INFINITY, 0.0), iv);
         } else if (numctr->op == ibex::CmpOp::EQ) {
-            numctr->f.ibwd(ibex::Interval(-config.nra_precision, config.nra_precision), iv);
+            numctr->f.ibwd(ibex::Interval(0.0, 0.0), iv);
         } else {
             throw runtime_error("??");
         }
         if (iv.is_empty()) {
-            counterexample.set_empty();
-            return counterexample;
+            return_empty = true;
         } else {
             // Reconstruct box b from pruned result iv.
             for (int i = 0; i < var_array.size(); i++) {
-                counterexample[var_array[i].name] = iv[i];
+                counterexample[var_array[i].name] = iv[i].mid();
             }
         }
+    }
+    if (return_empty) {
+        counterexample.set_empty();
     }
     return counterexample;
 }
