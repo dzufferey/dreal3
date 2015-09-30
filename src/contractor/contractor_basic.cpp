@@ -86,7 +86,7 @@ void contractor_seq::prune(fbbox & b, SMTConfig & config) const {
         unordered_set<constraint const *> const & used_ctrs = c.used_constraints();
         m_used_constraints.insert(used_ctrs.begin(), used_ctrs.end());
         if (b.front().is_empty()) {
-            break;
+            return;
         }
     }
 }
@@ -110,6 +110,7 @@ void contractor_try::prune(fbbox & b, SMTConfig & config) const {
     } catch (contractor_exception & e) {
         DREAL_LOG_INFO << "contractor_try: exception caught, \""
                        << e.what() << "\n";
+        return;
     }
     m_input  = m_c.input();
     m_output = m_c.output();
@@ -227,7 +228,7 @@ ostream & contractor_fixpoint::display(ostream & out) const {
 }
 
 void contractor_fixpoint::naive_fixpoint_alg(fbbox & b, SMTConfig & config) const {
-    box old_box = b.front(); //TODO thread_local static
+    static box old_box(b.front());
     m_input  = ibex::BitSet::empty(old_box.size());
     m_output = ibex::BitSet::empty(old_box.size());
     // Fixed Point Loop
@@ -247,7 +248,7 @@ void contractor_fixpoint::naive_fixpoint_alg(fbbox & b, SMTConfig & config) cons
 }
 
 void contractor_fixpoint::worklist_fixpoint_alg(fbbox & b, SMTConfig & config) const {
-    box old_box = b.front(); //TODO thread_local static
+    static box old_box(b.front());
     m_input  = ibex::BitSet::empty(old_box.size());
     m_output = ibex::BitSet::empty(old_box.size());
 
@@ -306,7 +307,6 @@ void contractor_int::prune(fbbox & b, SMTConfig & config) const {
     m_input  = ibex::BitSet::empty(b.front().size());
     m_output = ibex::BitSet::empty(b.front().size());
     unsigned i = 0;
-    //this contractor does not even use the back
     ibex::IntervalVector & iv = b.front().get_values();
     for (Enode * e : b.front().get_vars()) {
         if (e->hasSortInt()) {
@@ -326,7 +326,7 @@ void contractor_int::prune(fbbox & b, SMTConfig & config) const {
 
     // ======= Proof =======
     if (config.nra_proof) {
-        output_pruning_step(config.nra_proof_out, b.front(), b.back(), config.nra_readable_proof, "integer pruning");
+        output_pruning_step(config.nra_proof_out, b.back(), b.front(), config.nra_readable_proof, "integer pruning");
     }
 }
 ostream & contractor_int::display(ostream & out) const {
@@ -397,7 +397,6 @@ void contractor_cache::prune(fbbox & b, SMTConfig & config) const {
     }
 }
 
-
 ostream & contractor_cache::display(ostream & out) const {
     out << "contractor_cache(" << m_ctc << ")";
     return out;
@@ -434,6 +433,7 @@ void contractor_sample::prune(fbbox & b, SMTConfig &) const {
             DREAL_LOG_DEBUG << "contractor_sample::prune -- sampled point = " << p << " satisfies all constraints";
             b.back() = p;
             b.swap();
+            return;
         }
     }
 }
@@ -472,8 +472,7 @@ void contractor_aggressive::prune(fbbox & b, SMTConfig &) const {
                 pair<lbool, ibex::Interval> eval_result = nl_ctr->eval(b.front());
                 DREAL_LOG_DEBUG << "Constraint: " << *nl_ctr << " is violated by all " << points.size() << " points";
                 DREAL_LOG_DEBUG << "FYI, the interval evaluation gives us : " << eval_result.second;
-                b.back().set_empty();
-                b.swap();
+                b.front().set_empty();
                 return;
             }
         }

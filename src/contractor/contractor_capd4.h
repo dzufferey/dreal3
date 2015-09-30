@@ -28,7 +28,7 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include <memory>
 #include <utility>
 #include "opensmt/egraph/Enode.h"
-#include "util/box.h" 
+#include "util/box.h"
 #include "util/fbbox.h"
 #include "json/json.hpp"
 #include "capd/capdlib.h"
