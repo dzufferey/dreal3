@@ -53,17 +53,25 @@ using std::back_inserter;
 using std::boolalpha;
 using std::cerr;
 using std::endl;
+using std::exception;
 using std::function;
+using std::get;
 using std::initializer_list;
 using std::make_shared;
+using std::numeric_limits;
 using std::ostream;
 using std::ostringstream;
 using std::pair;
 using std::queue;
+using std::runtime_error;
 using std::set;
+using std::string;
 using std::tuple;
+using std::unordered_map;
 using std::unordered_set;
 using std::vector;
+using std::unique_ptr;
+using std::move;
 
 namespace dreal {
 
@@ -83,14 +91,18 @@ contractor_generic_forall::contractor_generic_forall(box const & , generic_foral
 void contractor_generic_forall::handle(fbbox & b, Enode * body, bool const p,  SMTConfig & config) const {
     if (body->isOr()) {
         vector<Enode *> vec = elist_to_vector(body->getCdr());
-        return handle_disjunction(b, vec, p, config);
+        handle_disjunction(b, vec, p, config);
+        return;
     } else if (body->isAnd()) {
         vector<Enode *> vec = elist_to_vector(body->getCdr());
-        return handle_conjunction(b, vec, p, config);
+        handle_conjunction(b, vec, p, config);
+        return;
     } else if (body->isNot()) {
-        return handle(b, body->get1st(), !p, config);
+        handle(b, body->get1st(), !p, config);
+        return;
     } else {
-        return handle_atomic(b, body, p, config);
+        handle_atomic(b, body, p, config);
+        return;
     }
 }
 
@@ -325,7 +337,7 @@ box refine_CE_with_nlopt(box const & b, vector<Enode*> const & vec) {
     }
 }
 
-contractor make_contractor(Enode * e, lbool const polarity, box const & b, vector<nonlinear_constraint *> & ctrs) {
+contractor make_contractor(Enode * e, lbool const polarity, box const & b, vector<unique_ptr<nonlinear_constraint>> & ctrs) {
     if (e->isNot()) {
         return make_contractor(e->get1st(), !polarity, b, ctrs);
     }
@@ -345,9 +357,10 @@ contractor make_contractor(Enode * e, lbool const polarity, box const & b, vecto
         }
         return mk_contractor_seq(ctcs);
     } else {
-        nonlinear_constraint * ctr = new nonlinear_constraint(e, polarity);
-        ctrs.push_back(ctr);
-        return mk_contractor_ibex_fwdbwd(b, ctr);
+        unique_ptr<nonlinear_constraint> ctr(new nonlinear_constraint(e, polarity));
+        auto ctc = mk_contractor_ibex_fwdbwd(b, ctr.get());
+        ctrs.push_back(move(ctr));
+        return ctc;
     }
 }
 
@@ -380,11 +393,11 @@ box find_CE_via_underapprox(box const & b, unordered_set<Enode*> const & forall_
             break;
         }
         nonlinear_constraint ctr(e, polarity);
-        auto numctr = ctr.get_numctr();
-        if (!numctr) {
+        if (ctr.is_neq()) {
             return_empty = false;
             break;
         }
+        auto numctr = ctr.get_numctr();
 
         // Construct iv from box b
         auto & var_array = ctr.get_var_array();
@@ -417,7 +430,7 @@ box find_CE_via_underapprox(box const & b, unordered_set<Enode*> const & forall_
 }
 
 box find_CE_via_overapprox(box const & b, unordered_set<Enode*> const & forall_vars, vector<Enode*> const & vec, bool const p, SMTConfig & config) {
-    vector<nonlinear_constraint *> ctrs;
+    vector<unique_ptr<nonlinear_constraint>> ctrs;
     vector<contractor> ctcs;
     box counterexample(b, forall_vars);
     if (config.nra_shrink_for_dop) {
@@ -437,9 +450,6 @@ box find_CE_via_overapprox(box const & b, unordered_set<Enode*> const & forall_v
     double const prec = config.nra_precision;
     // cerr << "find CE, prec = " << prec << endl;
     counterexample = random_icp::solve(counterexample, fp, config, prec);
-    for (auto ctr : ctrs) {
-        delete ctr;
-    }
     return counterexample;
 }
 
@@ -462,7 +472,6 @@ box contractor_generic_forall::find_CE(box const & b, unordered_set<Enode*> cons
     }
     return counterexample;
 }
-
 
 void contractor_generic_forall::handle_disjunction(fbbox & b, std::vector<Enode *> const &vec, bool const p, SMTConfig & config) const {
     DREAL_LOG_DEBUG << "contractor_generic_forall::handle_disjunction" << endl;
@@ -545,6 +554,13 @@ void contractor_generic_forall::handle_atomic(fbbox & b, Enode * body, bool cons
     vector<Enode*> vec;
     vec.push_back(body);
     handle_disjunction(b, vec, p, config);
+}
+
+void contractor_generic_forall::handle_atomic(box & b, Enode * body, bool const p, SMTConfig & config) const {
+    vector<Enode*> vec;
+    vec.push_back(body);
+    handle_disjunction(b, vec, p, config);
+    return;
 }
 
 void contractor_generic_forall::prune(fbbox & b, SMTConfig & config) const {

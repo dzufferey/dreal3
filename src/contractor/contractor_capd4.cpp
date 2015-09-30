@@ -41,16 +41,22 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include "contractor/contractor.h"
 #include "util/proof.h"
 
-using std::make_shared;
+using std::exception;
 using std::function;
 using std::initializer_list;
-using std::ostringstream;
 using std::list;
+using std::logic_error;
+using std::make_shared;
+using std::min;
+using std::ostringstream;
+using std::pair;
 using std::string;
+using std::unordered_map;
 using std::unordered_set;
 using std::vector;
-using std::logic_error;
-using std::exception;
+using std::setprecision;
+using std::ostream;
+using std::unique_ptr;
 using nlohmann::json;
 
 namespace dreal {
@@ -355,9 +361,9 @@ contractor_capd_fwd_full::contractor_capd_fwd_full(box const & box, ode_constrai
     string const capd_str = build_capd_string(ic);
     if (capd_str.find("var:") != string::npos) {
         DREAL_LOG_INFO << "contractor_capd_fwd_full: diff sys = " << capd_str;
-        m_vectorField = new capd::IMap(capd_str);
-        m_solver = new capd::IOdeSolver(*m_vectorField, m_taylor_order);
-        m_timeMap = new capd::ITimeMap(*m_solver);
+        m_vectorField.reset(new capd::IMap(capd_str));
+        m_solver.reset(new capd::IOdeSolver(*m_vectorField, m_taylor_order));
+        m_timeMap.reset(new capd::ITimeMap(*m_solver));
     } else {
         // Trivial Case with all params and no ODE variables
     }
@@ -370,12 +376,6 @@ contractor_capd_fwd_full::contractor_capd_fwd_full(box const & box, ode_constrai
     // Output: Empty
     m_output = ibex::BitSet::empty(box.size());
     m_used_constraints.insert(m_ctr);
-}
-
-contractor_capd_fwd_full::~contractor_capd_fwd_full() {
-    delete m_timeMap;
-    delete m_solver;
-    delete m_vectorField;
 }
 
 bool compute_enclosures(capd::IOdeSolver & solver, capd::interval const & prevTime, capd::interval const T, unsigned const grid_size, vector<pair<capd::interval, capd::IVector>> & enclosures, bool add_all = false) {
@@ -496,7 +496,6 @@ void contractor_capd_fwd_full::prune(fbbox & b, SMTConfig & config) const {
     }
     m_output  = ibex::BitSet::empty(b.back().size());
     if (!m_solver) {
-        // Trivial Case where there are only params and no real ODE vars.
         b.swap();
         return;
     }
@@ -573,6 +572,7 @@ void contractor_capd_fwd_full::prune(fbbox & b, SMTConfig & config) const {
         ss << (e->getPolarity() == l_False ? "!" : "") << e;
         output_pruning_step(config.nra_proof_out, b.front(), b.back(), config.nra_readable_proof, ss.str());
     }
+
     b.swap();
 }
 
@@ -700,9 +700,9 @@ contractor_capd_bwd_full::contractor_capd_bwd_full(box const & box, ode_constrai
     string const & capd_str = build_capd_string(ic, false);
     if (capd_str.find("var:") != string::npos) {
         DREAL_LOG_INFO << "contractor_capd_bwd_full: diff sys = " << capd_str;
-        m_vectorField = new capd::IMap(capd_str);
-        m_solver = new capd::IOdeSolver(*m_vectorField, m_taylor_order);
-        m_timeMap = new capd::ITimeMap(*m_solver);
+        m_vectorField.reset(new capd::IMap(capd_str));
+        m_solver.reset(new capd::IOdeSolver(*m_vectorField, m_taylor_order));
+        m_timeMap.reset(new capd::ITimeMap(*m_solver));
     } else {
         // Trivial Case with all params and no ODE variables
     }
@@ -717,12 +717,7 @@ contractor_capd_bwd_full::contractor_capd_bwd_full(box const & box, ode_constrai
     m_used_constraints.insert(m_ctr);
 }
 
-contractor_capd_bwd_full::~contractor_capd_bwd_full() {
-    delete m_timeMap;
-    delete m_solver;
-    delete m_vectorField;
-}
-
+<<<<<<< HEAD
 void contractor_capd_bwd_full::prune(fbbox & b, SMTConfig & config) const {
     b.back() = b.front();
     DREAL_LOG_DEBUG << "contractor_capd_bwd_full::prune";

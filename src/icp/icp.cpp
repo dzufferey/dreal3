@@ -28,6 +28,13 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include "util/proof.h"
 #include "util/fbbox.h"
 
+using std::cout;
+using std::vector;
+using std::endl;
+using std::tuple;
+using std::get;
+
+
 namespace dreal {
 
 void output_solution(box const & b, SMTConfig & config, unsigned i) {
@@ -58,11 +65,7 @@ box naive_icp::solve(box b, contractor const & ctc, SMTConfig & config) {
         fbb.front() = box_stack.back();
         box_stack.pop_back();
         try {
-            DREAL_LOG_INFO << "before pruning, front: " << fbb.front();
-            DREAL_LOG_INFO << "before pruning,  back: " << fbb.back() << std::endl;
             ctc.prune(fbb, config);
-            DREAL_LOG_INFO << "after pruning, front: " << fbb.front();
-            DREAL_LOG_INFO << "after pruning,  back: " << fbb.back() << std::endl;
             if (config.nra_use_stat) { config.nra_stat.increase_prune(); }
         } catch (contractor_exception & e) {
             // Do nothing
@@ -109,9 +112,6 @@ box naive_icp::solve(box b, contractor const & ctc, SMTConfig & config) {
     } else {
         b = fbb.front();
         assert(!b.is_empty() || box_stack.size() == 0);
-        // cerr << "BEFORE ADJUST_BOUND\n==================\n" << b << "=========================\n\n\n";
-        b.adjust_bound(box_stack);
-        // cerr << "AFTER  ADJUST_BOUND\n==================\n" << b << "=========================\n\n\n";
         return b;
     }
 }
@@ -249,9 +249,6 @@ box random_icp::solve(box b, contractor const & ctc, SMTConfig & config, double 
     } else {
         b = fbb.front();
         assert(!b.is_empty() || box_stack.size() == 0);
-        // cerr << "BEFORE ADJUST_BOUND\n==================\n" << b << "=========================\n\n\n";
-        b.adjust_bound(box_stack);
-        // cerr << "AFTER  ADJUST_BOUND\n==================\n" << b << "=========================\n\n\n";
         return b;
     }
 }

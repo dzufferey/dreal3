@@ -19,19 +19,21 @@ You should have received a copy of the GNU General Public License
 along with dReal. If not, see <http://www.gnu.org/licenses/>.
 *********************************************************************/
 
-#include <vector>
-#include <string>
 #include <algorithm>
-#include <iterator>
-#include <unordered_map>
-#include <unordered_set>
 #include <initializer_list>
 #include <iostream>
+#include <iterator>
+#include <map>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
+#include <vector>
 #include "opensmt/egraph/Enode.h"
 #include "constraint/constraint.h"
 #include "util/flow.h"
 #include "util/ibex_enode.h"
+#include "ibex/ibex_ExprCopy.h"
 #include "util/logging.h"
 
 using std::back_inserter;
@@ -39,12 +41,15 @@ using std::cerr;
 using std::copy;
 using std::endl;
 using std::initializer_list;
+using std::make_pair;
+using std::map;
 using std::ostream;
+using std::pair;
 using std::string;
+using std::to_string;
 using std::unordered_map;
 using std::unordered_set;
 using std::vector;
-using std::to_string;
 
 namespace dreal {
 
@@ -110,41 +115,44 @@ ostream & operator<<(ostream & out, constraint const & c) {
 // ====================================================
 // Nonlinear constraint
 // ====================================================
-nonlinear_constraint::nonlinear_constraint(Enode * const e, lbool p, std::unordered_map<Enode*, ibex::Interval> const & subst)
-    : constraint(constraint_type::Nonlinear, e), m_exprctr(nullptr), m_numctr(nullptr), m_numctr_ineq(nullptr), m_subst(subst) {
-    unordered_map<string, ibex::Variable const> var_map;
-    bool is_ineq = (p == l_False && e->isEq());
-    p = is_ineq ? true : p;
-
-    m_exprctr = translate_enode_to_exprctr(var_map, e, p, m_subst);
-    assert(m_exprctr);
-
+nonlinear_constraint::nonlinear_constraint(Enode * const e, lbool const p, std::unordered_map<Enode*, ibex::Interval> const & subst)
+    : constraint(constraint_type::Nonlinear, e), m_is_neq(p == l_False && e->isEq()),
+      m_is_aligned(false), m_numctr(nullptr) {
+    map<string, ibex::Variable const> var_map;
+    std::unique_ptr<ibex::ExprCtr const> exprctr(translate_enode_to_exprctr(var_map, e, p, subst));
     m_var_array.resize(var_map.size());
     unsigned i = 0;
-    for (auto const p : var_map) {
-        m_var_array.set_ref(i, p.second);
-        i++;
+    for (auto const item : var_map) {
+        m_var_array.set_ref(i++, item.second);
     }
-
-    if (is_ineq) {
-        m_numctr_ineq = new ibex::NumConstraint(m_var_array, *m_exprctr);
-    } else {
-        m_numctr = new ibex::NumConstraint(m_var_array, *m_exprctr);
-    }
+    m_numctr.reset(new ibex::NumConstraint(m_var_array, *exprctr));
     DREAL_LOG_INFO << "nonlinear_constraint: "<< *this;
 }
 
-nonlinear_constraint::~nonlinear_constraint() noexcept {
-    delete m_numctr;
-    delete m_numctr_ineq;
-    delete m_exprctr;
+nonlinear_constraint::nonlinear_constraint(Enode * const e,
+                                           unordered_set<Enode*> const & var_set,
+                                           lbool const p, std::unordered_map<Enode*, ibex::Interval> const & subst)
+    : constraint(constraint_type::Nonlinear, e), m_is_neq(p == l_False && e->isEq()),
+      m_is_aligned(true), m_numctr(nullptr), m_var_array(var_set.size()) {
+    // Build var_map and var_array
+    // Need to pass a fresh copy of var_array everytime it builds NumConstraint
+    auto var_map = build_var_map(var_set);
+    m_var_array.resize(var_map.size());
+    unsigned i = 0;
+    for (auto const item : var_map) {
+        m_var_array.set_ref(i++, item.second);
+    }
+    std::unique_ptr<ibex::ExprCtr const> exprctr(translate_enode_to_exprctr(var_map, e, p, subst));
+    m_numctr.reset(new ibex::NumConstraint(m_var_array, *exprctr));
+    DREAL_LOG_INFO << "nonlinear_constraint: "<< *this;
 }
+
 ostream & nonlinear_constraint::display(ostream & out) const {
     out << "nonlinear_constraint ";
-    if (m_numctr) {
-        out << *m_numctr;
+    if (m_is_neq) {
+        out << "!(" << *m_numctr << ")";
     } else {
-        out << "!(" << *m_numctr_ineq << ")";
+        out << *m_numctr;
     }
     return out;
 }
@@ -152,7 +160,7 @@ ostream & nonlinear_constraint::display(ostream & out) const {
 pair<lbool, ibex::Interval> nonlinear_constraint::eval(ibex::IntervalVector const & iv) const {
     lbool sat = l_Undef;
     ibex::Interval result;
-    if (m_numctr) {
+    if (!m_is_neq) {
         result = m_numctr->f.eval(iv);
         switch (m_numctr->op) {
             case ibex::LT:
@@ -212,9 +220,8 @@ pair<lbool, ibex::Interval> nonlinear_constraint::eval(ibex::IntervalVector cons
                 break;
         }
     } else {
-        // Ineq case: lhs - rhs != 0
-        assert(m_numctr_ineq);
-        result = m_numctr_ineq->f.eval(iv);
+        // NEQ case: lhs - rhs != 0
+        result = m_numctr->f.eval(iv);
         if ((result.lb() == 0) && (result.ub() == 0)) {
             //     [      lhs      ]
             //     [      rhs      ]

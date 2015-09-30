@@ -21,14 +21,15 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 
 #pragma once
 #include <algorithm>
-#include <unordered_map>
-#include <vector>
 #include <initializer_list>
 #include <iostream>
+#include <map>
+#include <memory>
 #include <stdexcept>
 #include <string>
-#include <memory>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 #include "opensmt/egraph/Enode.h"
 #include "util/box.h"
 #include "util/flow.h"
@@ -58,27 +59,26 @@ public:
     friend std::ostream & operator<<(std::ostream & out, constraint const & c);
 };
 
-std::ostream & operator<<(ostream & out, constraint const & c);
+std::ostream & operator<<(std::ostream & out, constraint const & c);
 
 class nonlinear_constraint : public constraint {
 private:
-    ibex::ExprCtr const *                    m_exprctr;
-    ibex::NumConstraint const *              m_numctr;
-    ibex::NumConstraint const *              m_numctr_ineq;
+    bool const                               m_is_neq;
+    bool const                               m_is_aligned;
+    std::unique_ptr<ibex::NumConstraint>     m_numctr;
     ibex::Array<ibex::ExprSymbol const>      m_var_array;
-    std::unordered_map<Enode*, ibex::Interval> const m_subst;
     std::pair<lbool, ibex::Interval> eval(ibex::IntervalVector const & iv) const;
 
 public:
-    explicit nonlinear_constraint(Enode * const e, lbool p = l_Undef, std::unordered_map<Enode*, ibex::Interval> const & subst = std::unordered_map<Enode *, ibex::Interval>());
-    virtual ~nonlinear_constraint() noexcept;
+    explicit nonlinear_constraint(Enode * const e, lbool const p, std::unordered_map<Enode*, ibex::Interval> const & subst = std::unordered_map<Enode *, ibex::Interval>());
+    nonlinear_constraint(Enode * const e, std::unordered_set<Enode*> const & var_set, lbool const p, std::unordered_map<Enode*, ibex::Interval> const & subst = std::unordered_map<Enode *, ibex::Interval>());
     virtual std::ostream & display(std::ostream & out) const;
     std::pair<lbool, ibex::Interval> eval(box const & b) const;
-    inline ibex::ExprCtr const * get_exprctr() const { return m_exprctr; }
-    inline ibex::NumConstraint const * get_numctr() const { return m_numctr; }
-    inline ibex::NumConstraint const * get_numctr_ineq() const { return m_numctr_ineq; }
+    inline ibex::NumConstraint * get_numctr() const { return m_numctr.get(); }
     ibex::Array<ibex::ExprSymbol const> const & get_var_array() const { return m_var_array; }
     inline Enode * get_enode() const { return get_enodes()[0]; }
+    bool is_neq() const { return m_is_neq; }
+    bool is_aligned() const { return m_is_aligned; }
 };
 
 class integral_constraint : public constraint {
@@ -90,7 +90,7 @@ private:
     std::vector<Enode *> const m_pars_0;
     std::vector<Enode *> const m_vars_t;
     std::vector<Enode *> const m_pars_t;
-    std::vector<string>  const m_par_lhs_names;
+    std::vector<std::string>  const m_par_lhs_names;
     std::vector<std::pair<std::string, Enode *>> const m_odes;
 
 public:
@@ -101,13 +101,13 @@ public:
     inline std::vector<Enode *> const & get_vars_t() const { return m_vars_t; }
     inline std::vector<Enode *> const & get_pars_0() const { return m_pars_0; }
     inline std::vector<Enode *> const & get_pars_t() const { return m_pars_t; }
-    inline std::vector<string>  const & get_par_lhs_names() const { return m_par_lhs_names; }
+    inline std::vector<std::string>  const & get_par_lhs_names() const { return m_par_lhs_names; }
     inline std::vector<std::pair<std::string, Enode *>> const & get_odes() const { return m_odes; }
     inline Enode * get_enode() const { return get_enodes()[0]; }
     integral_constraint(Enode * const e, unsigned const flow_id, Enode * const time_0, Enode * const time_t,
                         std::vector<Enode *> const & vars_0, std::vector<Enode *> const & pars_0,
                         std::vector<Enode *> const & vars_t, std::vector<Enode *> const & pars_t,
-                        std::vector<string>  const & par_lhs_names,
+                        std::vector<std::string>  const & par_lhs_names,
                         std::vector<std::pair<std::string, Enode *>> const & odes);
     virtual std::ostream & display(std::ostream & out) const;
 };

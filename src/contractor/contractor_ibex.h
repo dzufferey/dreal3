@@ -21,6 +21,7 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 
 #pragma once
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <initializer_list>
 #include <stdexcept>
@@ -40,11 +41,10 @@ private:
     nonlinear_constraint const * m_ctr;
     ibex::NumConstraint const * m_numctr;
     ibex::Array<ibex::ExprSymbol const> const & m_var_array;
-    ibex::CtcFwdBwd * m_ctc = nullptr;
+    std::unique_ptr<ibex::CtcFwdBwd> m_ctc;
 
 public:
     contractor_ibex_fwdbwd(box const & box, nonlinear_constraint const * const ctr);
-    ~contractor_ibex_fwdbwd();
     void prune(fbbox & b, SMTConfig & config) const;
     std::ostream & display(std::ostream & out) const;
 };
@@ -52,21 +52,21 @@ public:
 // contractor_ibex_polytope : contractor using IBEX POLYTOPE
 class contractor_ibex_polytope : public contractor_cell {
 private:
-    unordered_set<Enode *>               m_vars_in_ctrs;
-    vector<nonlinear_constraint const *> m_ctrs;
-    double const                         m_prec;
-    unordered_map<Enode *, ibex::Variable const *> m_var_cache;
-    unordered_map<Enode *, ibex::ExprCtr const *> m_exprctr_cache_pos;
-    unordered_map<Enode *, ibex::ExprCtr const *> m_exprctr_cache_neg;
+    std::unordered_set<Enode *>               m_vars_in_ctrs;
+    std::vector<nonlinear_constraint const *> m_ctrs;
+    double const                              m_prec;
+    std::unordered_map<Enode *, ibex::Variable const *> m_var_cache;
+    std::unordered_map<Enode *, ibex::ExprCtr const *> m_exprctr_cache_pos;
+    std::unordered_map<Enode *, ibex::ExprCtr const *> m_exprctr_cache_neg;
 
     // TODO(soonhok): this is a hack to avoid const problem, we need to fix them
-    mutable ibex::SystemFactory *            m_sf  = nullptr;
-    mutable ibex::System *                   m_sys = nullptr;
-    mutable ibex::System *                   m_sys_eqs = nullptr;
-    mutable ibex::LinearRelaxCombo *         m_lrc = nullptr;
-    mutable std::vector<ibex::Ctc *>         m_sub_ctcs;
-    mutable ibex::Ctc *                      m_ctc = nullptr;
-    ibex::SystemFactory* build_system_factory(vector<Enode *> const & vars, vector<nonlinear_constraint const *> const & ctrs);
+    mutable std::unique_ptr<ibex::SystemFactory>    m_sf = nullptr;
+    mutable std::unique_ptr<ibex::System>           m_sys = nullptr;
+    mutable ibex::System *                          m_sys_eqs = nullptr;
+    mutable std::unique_ptr<ibex::LinearRelaxCombo> m_lrc = nullptr;
+    mutable std::vector<std::unique_ptr<ibex::Ctc>> m_sub_ctcs;
+    mutable std::unique_ptr<ibex::Ctc>              m_ctc = nullptr;;
+    ibex::SystemFactory* build_system_factory(std::vector<Enode *> const & vars, std::vector<nonlinear_constraint const *> const & ctrs);
 
 public:
     contractor_ibex_polytope(double const prec, std::vector<Enode *> const & vars, std::vector<nonlinear_constraint const *> const & ctrs);

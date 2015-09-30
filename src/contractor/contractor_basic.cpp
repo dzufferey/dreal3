@@ -50,10 +50,14 @@ using std::initializer_list;
 using std::make_shared;
 using std::queue;
 using std::set;
+using std::unordered_map;
 using std::unordered_set;
 using std::vector;
 using std::ostream;
 using std::ostringstream;
+using std::endl;
+using std::pair;
+using std::make_pair;
 
 namespace dreal {
 ostream & operator<<(ostream & out, contractor_cell const & c) {
@@ -102,14 +106,16 @@ ostream & contractor_seq::display(ostream & out) const {
 
 contractor_try::contractor_try(contractor const & c)
     : contractor_cell(contractor_kind::TRY), m_c(c) { }
-//TODO this might be incorrect!
 void contractor_try::prune(fbbox & b, SMTConfig & config) const {
     DREAL_LOG_DEBUG << "contractor_try::prune: ";
+    static box old_box(b.front());
+    old_box = b.front();
     try {
         m_c.prune(b, config);
     } catch (contractor_exception & e) {
         DREAL_LOG_INFO << "contractor_try: exception caught, \""
                        << e.what() << "\n";
+        b.front() = old_box;
         return;
     }
     m_input  = m_c.input();
@@ -125,13 +131,15 @@ ostream & contractor_try::display(ostream & out) const {
 
 contractor_try_or::contractor_try_or(contractor const & c1, contractor const & c2)
     : contractor_cell(contractor_kind::TRY_OR), m_c1(c1), m_c2(c2) { }
-//TODO this might be incorrect!
 void contractor_try_or::prune(fbbox & b, SMTConfig & config) const {
     DREAL_LOG_DEBUG << "contractor_try_or::prune";
+    static box old_box(b.front());
+    old_box = b.front();
     contractor const * ctc = &m_c1;
     try {
         ctc->prune(b, config);
     } catch (contractor_exception & e) {
+        b.front() = old_box;
         ctc = &m_c2;
         ctc->prune(b, config);
     }
@@ -227,10 +235,11 @@ ostream & contractor_fixpoint::display(ostream & out) const {
     return out;
 }
 
+<<<<<<< HEAD
 void contractor_fixpoint::naive_fixpoint_alg(fbbox & b, SMTConfig & config) const {
     static box old_box(b.front());
-    m_input  = ibex::BitSet::empty(old_box.size());
-    m_output = ibex::BitSet::empty(old_box.size());
+    m_input  = ibex::BitSet::empty(b.front().size());
+    m_output = ibex::BitSet::empty(b.front().size());
     // Fixed Point Loop
     do {
         old_box = b.front();
@@ -249,13 +258,12 @@ void contractor_fixpoint::naive_fixpoint_alg(fbbox & b, SMTConfig & config) cons
 
 void contractor_fixpoint::worklist_fixpoint_alg(fbbox & b, SMTConfig & config) const {
     static box old_box(b.front());
-    m_input  = ibex::BitSet::empty(old_box.size());
-    m_output = ibex::BitSet::empty(old_box.size());
+    m_input  = ibex::BitSet::empty(b.front().size());
+    m_output = ibex::BitSet::empty(b.front().size());
 
     // Add all contractors to the queue.
     unordered_set<contractor> c_set;
     queue<contractor> q;
-
     for (contractor const & c : m_clist) {
         if (c_set.find(c) == c_set.end()) {
             q.push(c);
@@ -264,6 +272,7 @@ void contractor_fixpoint::worklist_fixpoint_alg(fbbox & b, SMTConfig & config) c
     }
     unsigned const num_initial_ctcs = c_set.size();
     unsigned count = 0;
+
     // Fixed Point Loop
     do {
         old_box = b.front();
@@ -310,7 +319,7 @@ void contractor_int::prune(fbbox & b, SMTConfig & config) const {
     ibex::IntervalVector & iv = b.front().get_values();
     for (Enode * e : b.front().get_vars()) {
         if (e->hasSortInt()) {
-            auto old_iv = iv[i];
+            auto const old_iv = iv[i];
             iv[i] = ibex::integer(iv[i]);
             if (old_iv != iv[i]) {
                 m_input.add(i);
@@ -392,8 +401,7 @@ void contractor_cache::prune(fbbox & b, SMTConfig & config) const {
         m_ctc.prune(b, config);
     } else {
         // Found
-        b.back() = it->second;
-        b.swap();
+        b.front() = it->second;
     }
 }
 
@@ -431,8 +439,7 @@ void contractor_sample::prune(fbbox & b, SMTConfig &) const {
         }
         if (check) {
             DREAL_LOG_DEBUG << "contractor_sample::prune -- sampled point = " << p << " satisfies all constraints";
-            b.back() = p;
-            b.swap();
+            b.front() = p;
             return;
         }
     }

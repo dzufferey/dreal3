@@ -1,7 +1,5 @@
 /*********************************************************************
 Author: Soonho Kong <soonhok@cs.cmu.edu>
-        Sicun Gao <sicung@cs.cmu.edu>
-        Edmund Clarke <emc@cs.cmu.edu>
 
 dReal -- Copyright (C) 2013 - 2015, Soonho Kong, Sicun Gao, and Edmund Clarke
 
@@ -23,6 +21,7 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include <functional>
 #include <set>
 #include <map>
+#include <memory>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -37,25 +36,7 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include "util/logging.h"
 #include "util/scoped_vec.h"
 #include "util/stat.h"
-
-namespace std {
-template<>
-struct hash<ibex::Variable> {
-    size_t operator () (const ibex::Variable & v) const {
-        int h = 0;
-        char const * str = v.symbol->name;
-        while (*str)
-            h = h << 1 ^ *str++;
-        return h;
-    }
-};
-template<>
-struct equal_to<ibex::Variable> {
-    bool operator() (const ibex::Variable & v1, const ibex::Variable & v2) const {
-        return strcmp(v1.symbol->name, v2.symbol->name) == 0;
-    }
-};
-}  // namespace std
+#include "util/ibex_variable_hash.h"
 
 namespace dreal {
 class nra_solver : public OrdinaryTSolver {
@@ -77,15 +58,13 @@ private:
     scoped_vec<constraint *>  m_stack;
     scoped_vec<constraint const *>  m_used_constraint_vec;
     scoped_vec<box> m_boxes;
-    std::vector<constraint *> m_ctrs;
-    std::map<std::pair<Enode*, bool>, constraint *> m_ctr_map;
-
+    std::map<std::pair<Enode*, bool>, std::unique_ptr<constraint>> m_ctr_map;
     contractor m_ctc;
     box m_box;
     mutable stat m_stat;
 
-    contractor build_contractor(box const & box, scoped_vec<constraint *> const & ctrs, bool const complete);
-    std::vector<constraint *> initialize_constraints();
+    void initialize(std::vector<Enode *> const & lits);
+    void initialize_constraints(std::vector<Enode *> const & lits);
     std::vector<Enode *> generate_explanation(scoped_vec<constraint const *> const & ctr_vec);
     void handle_sat_case(box const & b) const;
     void handle_deduction();

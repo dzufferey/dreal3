@@ -41,20 +41,27 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include "util/logging.h"
 #include "util/proof.h"
 
-using std::make_shared;
 using std::back_inserter;
+using std::endl;
 using std::function;
 using std::initializer_list;
+using std::make_shared;
+using std::map;
+using std::move;
+using std::ostream;
+using std::ostringstream;
+using std::queue;
+using std::string;
+using std::unique_ptr;
+using std::unordered_map;
 using std::unordered_set;
 using std::vector;
-using std::queue;
-using std::ostringstream;
 
 namespace dreal {
 ibex::SystemFactory* contractor_ibex_polytope::build_system_factory(vector<Enode *> const & vars, vector<nonlinear_constraint const *> const & ctrs) {
     DREAL_LOG_DEBUG << "build_system_factory:";
     ibex::SystemFactory * sf = new ibex::SystemFactory();
-    unordered_map<string, ibex::Variable const> var_map;  // Needed for translateEnodeToExprCtr
+    map<string, ibex::Variable const> var_map;  // Needed for translateEnodeToExprCtr
 
     // Construct System: add Variables
     for (Enode * e : vars) {
@@ -138,8 +145,8 @@ ibex::Array<ibex::ExprSymbol const> build_array_of_vars_from_enodes(unordered_se
 contractor_ibex_fwdbwd::contractor_ibex_fwdbwd(box const & box, nonlinear_constraint const * const ctr)
     : contractor_cell(contractor_kind::IBEX_FWDBWD, box.size()), m_ctr(ctr),
       m_numctr(ctr->get_numctr()), m_var_array(ctr->get_var_array()) {
-    if (m_numctr) {
-        m_ctc = new ibex::CtcFwdBwd(*m_numctr);
+    if (!ctr->is_neq()) {
+        m_ctc.reset(new ibex::CtcFwdBwd(*m_numctr));
         // Set up input
         ibex::BitSet const * const input = m_ctc->input;
         for (unsigned i = 0; i <  input->size(); i++) {
@@ -149,9 +156,6 @@ contractor_ibex_fwdbwd::contractor_ibex_fwdbwd(box const & box, nonlinear_constr
         }
         m_used_constraints.insert(m_ctr);
     }
-}
-contractor_ibex_fwdbwd::~contractor_ibex_fwdbwd() {
-    delete m_ctc;
 }
 
 void contractor_ibex_fwdbwd::prune(fbbox & b, SMTConfig & config) const {
@@ -173,13 +177,23 @@ void contractor_ibex_fwdbwd::prune(fbbox & b, SMTConfig & config) const {
         }
     }
 
-    //TODO ibex checks that the iv's size match the number of variables (cannot use back())
+    if (m_ctr->is_aligned() && m_var_array.size() - b.size() == 0) {
+        // This nonlinear_constraint is built aligned so that we can
+        // directly pass its IntervalVector
+        m_ctc->contract(b.front().get_values());
+        m_output = *(m_ctc->output);
+        return;
+
+        // TODO(soonhok): add proof
+    }
+
     // Construct iv from box b
     ibex::IntervalVector iv(m_var_array.size());
     for (int i = 0; i < m_var_array.size(); i++) {
         iv[i] = b.front()[m_var_array[i].name];
         DREAL_LOG_DEBUG << m_var_array[i].name << " = " << iv[i];
     }
+
     // Prune on iv
     DREAL_LOG_DEBUG << "Before pruning using ibex_fwdbwd(" << *m_numctr << ")";
     DREAL_LOG_DEBUG << b.front();
@@ -229,8 +243,8 @@ contractor_ibex_polytope::contractor_ibex_polytope(double const prec, vector<Eno
     : contractor_cell(contractor_kind::IBEX_POLYTOPE), m_ctrs(ctrs), m_prec(prec) {
     // Trivial Case
     if (m_ctrs.size() == 0) { return; }
-    m_sf = build_system_factory(vars, m_ctrs);
-    m_sys = new ibex::System(*m_sf);
+    m_sf.reset(build_system_factory(vars, m_ctrs));
+    m_sys.reset(new ibex::System(*m_sf));
 
     unsigned index = 0;
 
@@ -239,24 +253,24 @@ contractor_ibex_polytope::contractor_ibex_polytope(double const prec, vector<Eno
     m_sys_eqs = square_eq_sys(*m_sys);
     if (m_sys_eqs) {
         DREAL_LOG_INFO << "contractor_ibex_polytope: SQUARE SYSTEM";
-        ibex::CtcNewton * ctc_newton = new ibex::CtcNewton(m_sys_eqs->f, 5e8, m_prec, 1.e-4);
+        unique_ptr<ibex::CtcNewton> ctc_newton(new ibex::CtcNewton(m_sys_eqs->f, 5e8, m_prec, 1.e-4));
         ctc_list.set_ref(index++, *ctc_newton);
-        m_sub_ctcs.push_back(ctc_newton);
+        m_sub_ctcs.push_back(move(ctc_newton));
     }
 
-    m_lrc = new ibex::LinearRelaxCombo(*m_sys, ibex::LinearRelaxCombo::XNEWTON);
-    ibex::CtcPolytopeHull * ctc_ph = new ibex::CtcPolytopeHull(*m_lrc, ibex::CtcPolytopeHull::ALL_BOX);
-    ibex::CtcHC4 * ctc_hc4 = new ibex::CtcHC4(m_sys->ctrs, m_prec);
-    ibex::CtcCompo * ctc_combo = new ibex::CtcCompo(*ctc_ph, *ctc_hc4);
-    m_sub_ctcs.push_back(ctc_ph);
-    m_sub_ctcs.push_back(ctc_hc4);
-    m_sub_ctcs.push_back(ctc_combo);
-    ibex::CtcFixPoint * ctc_fp = new ibex::CtcFixPoint(*ctc_combo);
-    m_sub_ctcs.push_back(ctc_fp);
+    m_lrc.reset(new ibex::LinearRelaxCombo(*m_sys, ibex::LinearRelaxCombo::XNEWTON));
+    unique_ptr<ibex::CtcPolytopeHull> ctc_ph(new ibex::CtcPolytopeHull(*m_lrc, ibex::CtcPolytopeHull::ALL_BOX));
+    unique_ptr<ibex::CtcHC4> ctc_hc4(new ibex::CtcHC4(m_sys->ctrs, m_prec));
+    unique_ptr<ibex::CtcCompo> ctc_combo(new ibex::CtcCompo(*ctc_ph, *ctc_hc4));
+    unique_ptr<ibex::CtcFixPoint> ctc_fp(new ibex::CtcFixPoint(*ctc_combo));
     ctc_list.set_ref(index++, *ctc_fp);
+    m_sub_ctcs.push_back(move(ctc_ph));
+    m_sub_ctcs.push_back(move(ctc_hc4));
+    m_sub_ctcs.push_back(move(ctc_combo));
+    m_sub_ctcs.push_back(move(ctc_fp));
 
     ctc_list.resize(index);
-    m_ctc = new ibex::CtcCompo (ctc_list);
+    m_ctc.reset(new ibex::CtcCompo(ctc_list));
 
     // Setup Input
     // TODO(soonhok): this is a rough approximation, which needs to be refined.
@@ -271,14 +285,7 @@ contractor_ibex_polytope::contractor_ibex_polytope(double const prec, vector<Eno
 }
 
 contractor_ibex_polytope::~contractor_ibex_polytope() {
-    delete m_lrc;
-    for (ibex::Ctc * sub_ctc : m_sub_ctcs) {
-        delete sub_ctc;
-    }
-    delete m_ctc;
-    if (m_sys_eqs && m_sys_eqs != m_sys) { delete m_sys_eqs; }
-    delete m_sys;
-    delete m_sf;
+    if (m_sys_eqs && m_sys_eqs != m_sys.get()) { delete m_sys_eqs; }
     for (auto p : m_exprctr_cache_pos) {
         ibex::cleanup(p.second->e, false);
         delete p.second;

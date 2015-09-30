@@ -19,6 +19,7 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 
 #include <stdio.h>
 #include <iostream>
+#include <utility>
 #include "opensmt/api/opensmt_c.h"
 #include "opensmt/api/OpenSMTContext.h"
 #include "util/box.h"
@@ -27,9 +28,9 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #define CATCH_CONFIG_MAIN  // This tells Catch to provide a main() - only do this in one cpp file
 #include "catch/catch.hpp"
 
-
 using std::cerr;
 using std::endl;
+using std::make_pair;
 
 namespace dreal {
 
@@ -109,7 +110,7 @@ TEST_CASE("capd_fwd") {
     auto output_before = c.output();
     cerr << "Input  (BEFORE) : ";  input_before.display(cerr) << endl;
     cerr << "Output (BEFORE) : "; output_before.display(cerr) << endl;
-    b = c.prune(b, opensmt_ctx->getConfig());
+    c.prune(b, opensmt_ctx->getConfig());
     cerr << b << endl;
     auto input_after = c.input();
     auto output_after = c.output();
@@ -218,7 +219,7 @@ TEST_CASE("capd_bwd") {
     auto output_before = c.output();
     cerr << "Input  (BEFORE) : ";  input_before.display(cerr) << endl;
     cerr << "Output (BEFORE) : "; output_before.display(cerr) << endl;
-    b = c.prune(b, opensmt_ctx->getConfig());
+    c.prune(b, opensmt_ctx->getConfig());
     cerr << b << endl;
     auto input_after = c.input();
     auto output_after = c.output();
