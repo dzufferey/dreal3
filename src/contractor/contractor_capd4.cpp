@@ -717,7 +717,6 @@ contractor_capd_bwd_full::contractor_capd_bwd_full(box const & box, ode_constrai
     m_used_constraints.insert(m_ctr);
 }
 
-<<<<<<< HEAD
 void contractor_capd_bwd_full::prune(fbbox & b, SMTConfig & config) const {
     b.back() = b.front();
     DREAL_LOG_DEBUG << "contractor_capd_bwd_full::prune";

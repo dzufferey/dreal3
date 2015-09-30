@@ -171,20 +171,32 @@ void contractor_ibex_fwdbwd::prune(fbbox & b, SMTConfig & config) const {
         auto eval_result = m_ctr->eval(b.front());
         if (eval_result.first == l_False) {
             b.front().set_empty();
+            // ======= Proof =======
+            if (config.nra_proof) {
+                ostringstream ss;
+                Enode const * const e = m_ctr->get_enode();
+                ss << (e->getPolarity() == l_False ? "!" : "") << e;
+                output_pruning_step(config.nra_proof_out, b.back(), b.front(), config.nra_readable_proof, ss.str());
+            }
             return;
         } else {
             return;
         }
     }
 
-    if (m_ctr->is_aligned() && m_var_array.size() - b.size() == 0) {
+    if (m_ctr->is_aligned() && m_var_array.size() - b.front().size() == 0) {
         // This nonlinear_constraint is built aligned so that we can
         // directly pass its IntervalVector
         m_ctc->contract(b.front().get_values());
         m_output = *(m_ctc->output);
+        // ======= Proof =======
+        if (config.nra_proof) {
+            ostringstream ss;
+            Enode const * const e = m_ctr->get_enode();
+            ss << (e->getPolarity() == l_False ? "!" : "") << e;
+            output_pruning_step(config.nra_proof_out, b.back(), b.front(), config.nra_readable_proof, ss.str());
+        }
         return;
-
-        // TODO(soonhok): add proof
     }
 
     // Construct iv from box b

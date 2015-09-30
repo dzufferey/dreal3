@@ -235,7 +235,6 @@ ostream & contractor_fixpoint::display(ostream & out) const {
     return out;
 }
 
-<<<<<<< HEAD
 void contractor_fixpoint::naive_fixpoint_alg(fbbox & b, SMTConfig & config) const {
     static box old_box(b.front());
     m_input  = ibex::BitSet::empty(b.front().size());

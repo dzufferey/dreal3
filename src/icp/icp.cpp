@@ -185,7 +185,6 @@ box ncbt_icp::solve(box b, contractor const & ctc, SMTConfig & config) {
     } while (box_stack.size() > 0);
     DREAL_LOG_DEBUG << "prune count = " << prune_count;
     b = fbb.front();
-    b.adjust_bound(box_stack);
     return b;
 }
 
@@ -360,7 +359,6 @@ box parallel_icp::solve(box b, contractor const & ctc, SMTConfig & config) {
         //check if there is a solution
         if (p_icp.found_solution) {
             box sol = p_icp.solutions.top();
-            sol.set_bounds(b.get_values());
             return sol;
         } else {
             b.set_empty();

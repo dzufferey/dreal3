@@ -114,7 +114,6 @@ public:
     inline void prune(fbbox & b, SMTConfig & config) const {
         assert(m_ptr != nullptr);
         m_ptr->prune(b, config);
-        b.front().shrink_bounds();
     }
     inline bool operator==(contractor const & c) const { return m_ptr == c.m_ptr; }
     inline bool operator<(contractor const & c) const { return m_ptr < c.m_ptr; }

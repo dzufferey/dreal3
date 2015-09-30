@@ -556,13 +556,6 @@ void contractor_generic_forall::handle_atomic(fbbox & b, Enode * body, bool cons
     handle_disjunction(b, vec, p, config);
 }
 
-void contractor_generic_forall::handle_atomic(box & b, Enode * body, bool const p, SMTConfig & config) const {
-    vector<Enode*> vec;
-    vec.push_back(body);
-    handle_disjunction(b, vec, p, config);
-    return;
-}
-
 void contractor_generic_forall::prune(fbbox & b, SMTConfig & config) const {
     DREAL_LOG_DEBUG << "contractor_generic_forall prune: " << *m_ctr << endl;
     Enode * body = m_ctr->get_body();

@@ -189,9 +189,6 @@ void initialize_ode_constraints(map<pair<Enode*, bool>, unique_ptr<constraint>> 
         DREAL_LOG_INFO << "nra_solver::initialize_constraints: collect ODEConstraint: " << *oc;
         ctr_map.emplace(make_pair(ic.get_enode(), true), move(oc));
     }
-    if (config.nra_proof) {
-         output_start(config.nra_proof_out, m_box, config.nra_readable_proof);
-    }
 }
 
 // Given a list of theory literals (vector<Enode *>)
@@ -231,6 +228,9 @@ void nra_solver::initialize_constraints(vector<Enode *> const & lits) {
     }
     initialize_ode_constraints(m_ctr_map, ints, invs);
     initialize_nonlinear_constraints(m_ctr_map, nonlinear_lits);
+    if (config.nra_proof) {
+         output_start(config.nra_proof_out, m_box, config.nra_readable_proof);
+    }
 }
 
 contractor build_contractor(box const & box, scoped_vec<constraint *> const &ctrs, bool const complete, SMTConfig & config) {
