@@ -400,6 +400,9 @@ public:
     }
   };
 
+  inline Enode * get_attribute() { return attribute; }; 
+  inline void set_attribute(Enode * n ) { attribute = n; }; 
+
 private:
   //
   // Standard informations for terms
@@ -420,6 +423,8 @@ private:
   double            dom_ub = +std::numeric_limits<double>::infinity(); // enode upper bound (domain)
   double            precision = 0.0;   //added for dReal2
   bool              is_exist_var = true;
+
+  Enode *           attribute;
 
 #if 0
   Enode *           dynamic;    // Pointer to dynamic equivalent

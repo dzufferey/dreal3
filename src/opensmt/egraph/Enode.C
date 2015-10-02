@@ -39,6 +39,7 @@ Enode::Enode( )
   , atom_data ( NULL )
   , value     ( NULL )
   , precision ( 0.0 )
+  , attribute ( NULL )
 {
   setEtype( ETYPE_LIST );
   // dynamic = this;
@@ -58,6 +59,7 @@ Enode::Enode( const enodeid_t      id_
   , atom_data  ( NULL )
   , value      ( NULL )
   , precision  ( 0.0 )
+  , attribute  ( NULL )
 {
   setEtype( etype_ );
   setArity( sort_->getArity( ) - 1 ); // Sort arity includes return value ...
@@ -78,6 +80,7 @@ Enode::Enode( const enodeid_t id_
   , atom_data  ( NULL )
   , value      ( NULL )
   , precision  ( 0.0 )
+  , attribute  ( NULL )
   // , dynamic   ( NULL )
 {
   assert( car );
@@ -135,6 +138,7 @@ Enode::Enode( const enodeid_t	id_
   , atom_data  ( NULL )
   , value      ( NULL )
   , precision  ( 0.0 )
+  , attribute  ( NULL )
   // , dynamic   ( NULL )
 { }
 
@@ -148,6 +152,8 @@ Enode::~Enode ( )
     delete atom_data;
   if ( value )
     delete value;
+  if ( attribute )
+    delete attribute;
 }
 
 Snode * Enode::getLastSort ( )

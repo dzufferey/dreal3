@@ -111,7 +111,7 @@ void smt2error( const char * s )
 %type <str> identifier spec_const b_value s_expr
 
 /* %type <str_list> numeral_list */
-%type <enode> term_list term
+%type <enode> term_list term attribute_list attribute
 %type <ode> ode
 %type <ode_list> ode_list
 %type <snode> sort
@@ -546,10 +546,11 @@ term: spec_const
           $$ = parser_ctx->mkExists(*($4), $6);
           delete $4;
       }
-    /*
     | '(' TK_ANNOT term attribute_list ')'
-      { opensmt_error2( "case not handled (yet)", "" ); }
-    */
+      {
+          $3->set_attribute($4);
+          $$ = $3;
+      }
   /*
    * Variable
    */
@@ -831,6 +832,23 @@ b_value: TK_TRUE
            $$ = buf;
          }
        ;
+
+attribute_list: attribute attribute_list
+        { $$ = parser_ctx->mkCons( $1, $2 ); }
+      | attribute
+        { $$ = parser_ctx->mkCons( $1 ); }
+      ;
+
+attribute: TK_KEY TK_SYM
+        {
+            //TODO
+            //<attribute>       ::= <keyword> | <keyword> <attribute_value>
+            //<attribute_value> ::= <spec_constant> | <symbol> | (<s_expr>*)
+            $$ = parser_ctx->mkFun( $1, parser_ctx->mkCons( parser_ctx->mkVar( $2 ) ) );
+            free( $1 );
+            free( $2 );
+        }
+      ;
 
 %%
 
