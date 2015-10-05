@@ -400,8 +400,8 @@ public:
     }
   };
 
-  inline Enode * get_attribute() { return attribute; }; 
-  inline void set_attribute(Enode * n ) { attribute = n; }; 
+  inline std::string * get_attribute() { return attribute; }; 
+  inline void set_attribute(std::string * n ) { attribute = n; }; 
 
 private:
   //
@@ -424,7 +424,7 @@ private:
   double            precision = 0.0;   //added for dReal2
   bool              is_exist_var = true;
 
-  Enode *           attribute;
+  std::string *     attribute;
 
 #if 0
   Enode *           dynamic;    // Pointer to dynamic equivalent

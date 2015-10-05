@@ -110,8 +110,10 @@ void smt2error( const char * s )
 %type <str> TK_NUM TK_DEC TK_HEX TK_STR TK_SYM TK_KEY numeral decimal hexadecimal /*binary*/ symbol
 %type <str> identifier spec_const b_value s_expr
 
+%type <str> attribute
+
 /* %type <str_list> numeral_list */
-%type <enode> term_list term attribute_list attribute
+%type <enode> term_list term
 %type <ode> ode
 %type <ode_list> ode_list
 %type <snode> sort
@@ -546,9 +548,10 @@ term: spec_const
           $$ = parser_ctx->mkExists(*($4), $6);
           delete $4;
       }
-    | '(' TK_ANNOT term attribute_list ')'
+    | '(' TK_ANNOT term attribute ')'
       {
-          $3->set_attribute($4);
+          $3->set_attribute(new std::string($4));
+          free($4);
           $$ = $3;
       }
   /*
@@ -833,20 +836,19 @@ b_value: TK_TRUE
          }
        ;
 
-attribute_list: attribute attribute_list
-        { $$ = parser_ctx->mkCons( $1, $2 ); }
-      | attribute
-        { $$ = parser_ctx->mkCons( $1 ); }
-      ;
-
 attribute: TK_KEY TK_SYM
         {
             //TODO
             //<attribute>       ::= <keyword> | <keyword> <attribute_value>
             //<attribute_value> ::= <spec_constant> | <symbol> | (<s_expr>*)
-            $$ = parser_ctx->mkFun( $1, parser_ctx->mkCons( parser_ctx->mkVar( $2 ) ) );
-            free( $1 );
-            free( $2 );
+            if (strcmp($1, ":side") == 0) {
+              $$ = $2;
+              free( $1 );
+            } else {
+              $$ = NULL;
+              free( $1 );
+              free( $2 );
+            }
         }
       ;
 

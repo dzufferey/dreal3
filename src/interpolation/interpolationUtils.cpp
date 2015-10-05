@@ -14,11 +14,9 @@ tuple<unordered_set<constraint const *>, unordered_set<constraint const *>> spli
         for (auto n: c->get_enodes()){
             auto a = n->get_attribute(); 
             if (a != NULL) {
-                a->print(sstr);
-                std::string s = sstr.str();
-                if (s == "(:side A)") {
+                if (*a == "A") {
                     is_a = true;
-                } else if (s == "(:side B)") {
+                } else if (*a == "B") {
                     is_b = true;
                 }
                 sstr.clear();
