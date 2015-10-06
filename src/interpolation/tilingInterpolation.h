@@ -35,8 +35,8 @@ private:
     bool is_b_var(int variable);
     bool is_shared_var(int variable);
     
-    bool is_a_constraint(constraint const & c);
-    bool is_b_constraint(constraint const & c);
+    bool is_a_constraint(constraint const * c);
+    bool is_b_constraint(constraint const * c);
 
     void push_partial_interpolant(Enode * i);
 
@@ -45,11 +45,14 @@ public:
                         std::unordered_set<constraint const *> const & a_cstrs,
                         std::unordered_set<constraint const *> const & b_cstrs);
 
-    void pruning(box const & old_box, box const & new_box, constraint const & cstr);
+    void pruning(box const & old_box, box const & new_box, constraint const * cstr);
 
     void split(box const & first_box, box const & second_box, int variable);
 
     Enode * get_interpolant();
 };
+
+//a global reference to the interpolation
+extern tilingInterpolation* interpolator;
 
 }  // namespace dreal

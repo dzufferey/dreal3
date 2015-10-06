@@ -1,17 +1,16 @@
 #include "interpolation/interpolationUtils.h"
 
-#include <sstream>
-
 namespace dreal {
 
-tuple<unordered_set<constraint const *>, unordered_set<constraint const *>> splitAB(const scoped_vec<constraint const *> cstrs) {
-    unordered_set<constraint const *> a_cstrs;
-    unordered_set<constraint const *> b_cstrs;
-    std::stringstream sstr;
-    for (auto c: cstrs) {
+tuple<unordered_set<constraint const *>, unordered_set<constraint const *>> splitAB(const std::vector<constraint const *> & cstrs) {
+    unordered_set<constraint const *> a_cstrs(100);
+    unordered_set<constraint const *> b_cstrs(100);
+    for (constraint const * c: cstrs) {
         bool is_a = false;
         bool is_b = false;
-        for (auto n: c->get_enodes()){
+        assert(c != NULL);
+        for (Enode const * n: c->get_enodes()){
+            assert(n != NULL);
             auto a = n->get_attribute(); 
             if (a != NULL) {
                 if (*a == "A") {
@@ -19,7 +18,6 @@ tuple<unordered_set<constraint const *>, unordered_set<constraint const *>> spli
                 } else if (*a == "B") {
                     is_b = true;
                 }
-                sstr.clear();
             }
         }
         assert(!(is_a && is_b));// constraint in both A and B. we might lift this later.

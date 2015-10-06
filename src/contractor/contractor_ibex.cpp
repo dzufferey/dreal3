@@ -40,6 +40,7 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include "util/ibex_enode.h"
 #include "util/logging.h"
 #include "util/proof.h"
+#include "interpolation/tilingInterpolation.h"
 
 using std::back_inserter;
 using std::endl;
@@ -163,7 +164,9 @@ void contractor_ibex_fwdbwd::prune(fbbox & b, SMTConfig & config) const {
     if (m_ctc == nullptr) { return; }
 
     // ======= Proof =======
-    if (config.nra_proof) { b.back() = b.front(); }
+    if (config.nra_proof || config.nra_interpolant) {
+        b.back() = b.front();
+    }
 
     DREAL_LOG_DEBUG << "==================================================";
 
@@ -177,6 +180,9 @@ void contractor_ibex_fwdbwd::prune(fbbox & b, SMTConfig & config) const {
                 Enode const * const e = m_ctr->get_enode();
                 ss << (e->getPolarity() == l_False ? "!" : "") << e;
                 output_pruning_step(config.nra_proof_out, b.back(), b.front(), config.nra_readable_proof, ss.str());
+            }
+            if (config.nra_interpolant) {
+                interpolator->pruning(b.back(), b.front(), m_ctr);
             }
             return;
         } else {
@@ -195,6 +201,9 @@ void contractor_ibex_fwdbwd::prune(fbbox & b, SMTConfig & config) const {
             Enode const * const e = m_ctr->get_enode();
             ss << (e->getPolarity() == l_False ? "!" : "") << e;
             output_pruning_step(config.nra_proof_out, b.back(), b.front(), config.nra_readable_proof, ss.str());
+        }
+        if (config.nra_interpolant) {
+            interpolator->pruning(b.back(), b.front(), m_ctr);
         }
         return;
     }
@@ -239,6 +248,9 @@ void contractor_ibex_fwdbwd::prune(fbbox & b, SMTConfig & config) const {
         Enode const * const e = m_ctr->get_enode();
         ss << (e->getPolarity() == l_False ? "!" : "") << e;
         output_pruning_step(config.nra_proof_out, b.back(), b.front(), config.nra_readable_proof, ss.str());
+    }
+    if (config.nra_interpolant) {
+        interpolator->pruning(b.back(), b.front(), m_ctr);
     }
 }
 
@@ -338,6 +350,11 @@ void contractor_ibex_polytope::prune(fbbox & b, SMTConfig & config) const {
             ss << (e->getPolarity() == l_False ? "!" : "") << e << ";";
         }
         output_pruning_step(config.nra_proof_out, b.front(), b.back(), config.nra_readable_proof, ss.str());
+    }
+    if (config.nra_interpolant) {
+        assert(false);
+        //TODO which one to pick???
+        //interpolator->pruning(b.front(), b.back(), ??? );
     }
     b.swap();
 }

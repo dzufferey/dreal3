@@ -8,15 +8,14 @@ namespace dreal {
 
 using std::tuple;
 
-tilingInterpolation::tilingInterpolation(
-        box const & d,
+tilingInterpolation::tilingInterpolation( box const & d,
         std::unordered_set<constraint const *> const & a_cstrs,
         std::unordered_set<constraint const *> const & b_cstrs):
     domain(d),
     a_variables(ibex::BitSet::empty(d.size())),
     b_variables(ibex::BitSet::empty(d.size())),
     a_constraints(a_cstrs),
-    b_constraints(a_cstrs),
+    b_constraints(b_cstrs),
     split_stack(),
     partial_interpolants()
 {
@@ -32,11 +31,12 @@ tilingInterpolation::tilingInterpolation(
     }
 }
 
-void tilingInterpolation::pruning(box const & old_box, box const & new_box, constraint const & cstr) {
+void tilingInterpolation::pruning(box const & old_box, box const & new_box, constraint const * cstr) {
     Enode * it;
     if (is_a_constraint(cstr)) {
         it = make_false();
     } else {
+        assert(is_b_constraint(cstr));
         it = make_true();
     }
     if (new_box.is_empty()) {
@@ -118,12 +118,12 @@ bool tilingInterpolation::is_shared_var(int variable) {
     return is_a_var(variable) && is_b_var(variable);
 }
     
-bool tilingInterpolation::is_a_constraint(constraint const & c) {
-    return a_constraints.count(&c) > 0;
+bool tilingInterpolation::is_a_constraint(constraint const * c) {
+    return a_constraints.count(c) > 0;
 }
 
-bool tilingInterpolation::is_b_constraint(constraint const & c) {
-    return b_constraints.count(&c) > 0;
+bool tilingInterpolation::is_b_constraint(constraint const * c) {
+    return b_constraints.count(c) > 0;
 }
     
 Enode * tilingInterpolation::make_leq(int variable, double value) {
@@ -162,5 +162,7 @@ Enode * tilingInterpolation::make_true() {
 Enode * tilingInterpolation::make_false() {
     return parser_ctx->mkFalse();
 }
+
+tilingInterpolation* interpolator = NULL;
 
 }

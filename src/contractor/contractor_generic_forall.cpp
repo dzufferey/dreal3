@@ -48,6 +48,7 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include "util/string.h"
 #include "util/proof.h"
 #include "util/eval.h"
+#include "interpolation/tilingInterpolation.h"
 
 using std::back_inserter;
 using std::boolalpha;
@@ -561,6 +562,7 @@ void contractor_generic_forall::prune(fbbox & b, SMTConfig & config) const {
     Enode * body = m_ctr->get_body();
     DREAL_LOG_DEBUG << "body = " << body << endl;
     handle(b, body, true, config);
+    //TODO proof
 }
 
 ostream & contractor_generic_forall::display(ostream & out) const {

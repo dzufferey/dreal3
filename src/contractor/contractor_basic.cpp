@@ -43,6 +43,7 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include "constraint/constraint.h"
 #include "util/logging.h"
 #include "util/proof.h"
+#include "interpolation/tilingInterpolation.h"
 
 using std::back_inserter;
 using std::function;
@@ -310,7 +311,9 @@ contractor_int::contractor_int() : contractor_cell(contractor_kind::INT) { }
 void contractor_int::prune(fbbox & b, SMTConfig & config) const {
     DREAL_LOG_DEBUG << "contractor_int::prune";
     // ======= Proof =======
-    if (config.nra_proof) { b.back() = b.front(); } //copy front to back
+    if (config.nra_proof /*|| config.nra_interpolant*/) {
+        b.back() = b.front();
+    }
 
     m_input  = ibex::BitSet::empty(b.front().size());
     m_output = ibex::BitSet::empty(b.front().size());
@@ -336,6 +339,11 @@ void contractor_int::prune(fbbox & b, SMTConfig & config) const {
     if (config.nra_proof) {
         output_pruning_step(config.nra_proof_out, b.back(), b.front(), config.nra_readable_proof, "integer pruning");
     }
+    /* TODO
+    if (config.nra_interpolant) {
+        interpolator->pruning(b.back(), b.front(), ??? );
+    }
+    */
 }
 ostream & contractor_int::display(ostream & out) const {
     out << "contractor_int()";
@@ -369,6 +377,9 @@ void contractor_eval::prune(fbbox & b, SMTConfig & config) const {
             ss << (e->getPolarity() == l_False ? "!" : "") << e;
             output_pruning_step(config.nra_proof_out, b.front(), b.back(), config.nra_readable_proof, ss.str());
         } 
+        if (config.nra_interpolant) {
+            interpolator->pruning(b.front(), b.back(), m_nl_ctr);
+        }
         b.swap();
     }
 }
@@ -393,6 +404,7 @@ void contractor_cache::prune(fbbox & b, SMTConfig & config) const {
     m_input  = ibex::BitSet::empty(b.front().size());
     m_output = ibex::BitSet::empty(b.front().size());
     // TODO(soonhok): implement this
+    // TODO caching also require caching the proof
     static unordered_map<box, box> cache;
     auto const it = cache.find(b.front());
     if (it == cache.cend()) {

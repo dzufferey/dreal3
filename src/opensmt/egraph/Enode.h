@@ -400,7 +400,7 @@ public:
     }
   };
 
-  inline std::string * get_attribute() { return attribute; }; 
+  inline std::string * get_attribute() const { return attribute; }; 
   inline void set_attribute(std::string * n ) { attribute = n; }; 
 
 private:

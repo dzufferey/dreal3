@@ -42,6 +42,8 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include "util/stat.h"
 #include "json/json.hpp"
 #include "util/proof.h"
+#include "interpolation/tilingInterpolation.h"
+#include "interpolation/interpolationUtils.h"
 
 using ibex::IntervalVector;
 using nlohmann::json;
@@ -228,9 +230,6 @@ void nra_solver::initialize_constraints(vector<Enode *> const & lits) {
     }
     initialize_ode_constraints(m_ctr_map, ints, invs);
     initialize_nonlinear_constraints(m_ctr_map, nonlinear_lits);
-    if (config.nra_proof) {
-         output_start(config.nra_proof_out, m_box, config.nra_readable_proof);
-    }
 }
 
 contractor build_contractor(box const & box, scoped_vec<constraint *> const &ctrs, bool const complete, SMTConfig & config) {
@@ -371,6 +370,11 @@ void nra_solver::handle_sat_case(box const & b) const {
         config.nra_proof_out.open(config.nra_proof_out_name.c_str(), ofstream::out | ofstream::trunc);
         display(config.nra_proof_out, b, !config.nra_readable_proof, true);
     }
+    // --interpolant option
+    if (config.nra_interpolant) {
+        delete interpolator;
+        interpolator = NULL;
+    }
     // --model option
     if (config.nra_model && config.nra_multiple_soln == 1) {
         // Only output here when --multiple_soln is not used
@@ -432,7 +436,27 @@ bool nra_solver::check(bool complete) {
     DREAL_LOG_INFO << "nra_solver::check(complete = " << boolalpha << complete << ")"
                    << "stack size = " << m_stack.size();
     m_ctc = build_contractor(m_box, m_stack, complete, config);
+    // initialize the proof
+    if (config.nra_proof) {
+         output_start(config.nra_proof_out, m_box, config.nra_readable_proof);
+    }
+    // initialize the interpolant
+    if (config.nra_interpolant) {
+        std::vector<constraint const *> cstrs(m_stack.size());
+        int i = 0;
+        for (constraint const * ptr: m_stack) {
+          cstrs[i] = ptr;
+          i++;
+        }
+        auto a_b_cstr = splitAB(cstrs);
+        auto a_cstrs = get<0>(a_b_cstr);
+        auto b_cstrs = get<1>(a_b_cstr);
+        DREAL_LOG_INFO << "a_cstrs: " << a_cstrs.size();
+        DREAL_LOG_INFO << "b_cstrs: " << b_cstrs.size();
+        interpolator = new tilingInterpolation(m_box, a_cstrs, b_cstrs);
+    }
     if (complete) {
+        //TODO setup the proof and the interpolant
         // Complete Check ==> Run ICP
         if (config.nra_ncbt) {
             m_box = ncbt_icp::solve(m_box, m_ctc, config);
@@ -457,6 +481,12 @@ bool nra_solver::check(bool complete) {
     }
     if (!result) {
         explanation = generate_explanation(m_used_constraint_vec);
+        if (config.nra_interpolant) {
+            Enode * itp = interpolator->get_interpolant();
+            std::cout << "interpolant" << std::endl;
+            itp->print(std::cout);
+            std::cout << std::endl;
+        }
     } else {
         if (!complete && config.sat_theory_propagation) {
             handle_deduction();

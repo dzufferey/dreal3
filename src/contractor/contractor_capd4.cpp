@@ -40,6 +40,7 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include "constraint/constraint.h"
 #include "contractor/contractor.h"
 #include "util/proof.h"
+#include "interpolation/tilingInterpolation.h"
 
 using std::exception;
 using std::function;
@@ -571,6 +572,9 @@ void contractor_capd_fwd_full::prune(fbbox & b, SMTConfig & config) const {
         Enode const * const e = m_ctr->get_enode();
         ss << (e->getPolarity() == l_False ? "!" : "") << e;
         output_pruning_step(config.nra_proof_out, b.front(), b.back(), config.nra_readable_proof, ss.str());
+    }
+    if (config.nra_interpolant) {
+        interpolator->pruning(b.front(), b.back(), m_ctr);
     }
 
     b.swap();

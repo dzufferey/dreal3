@@ -64,11 +64,11 @@ std::tuple<double,bool> find_split(box const & first_box, box const & second_box
     double split;
     bool gt;
     if (fst_value.ub() <= snd_value.lb() ) {
-        assert( fst_value.lb < snd_value.ub() );
+        assert( fst_value.lb() < snd_value.ub() );
         split = fst_value.ub();
         gt = false;
     } else {
-        assert( snd_value.lb < fst_value.ub() );
+        assert( snd_value.lb() < fst_value.ub() );
         split = fst_value.lb();
         gt = true;
     }

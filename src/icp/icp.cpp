@@ -27,6 +27,7 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include "util/stat.h"
 #include "util/proof.h"
 #include "util/fbbox.h"
+#include "interpolation/tilingInterpolation.h"
 
 using std::cout;
 using std::vector;
@@ -86,12 +87,18 @@ box naive_icp::solve(box b, contractor const & ctc, SMTConfig & config) {
                         output_split_step(config.nra_proof_out, fbb.front(), first, second,
                                           config.nra_readable_proof, i);
                     }
+                    if (config.nra_interpolant) {
+                        interpolator->split(first, second, i);
+                    }
                 } else {
                     box_stack.push_back(first);
                     box_stack.push_back(second);
                     if (config.nra_proof) {
                         output_split_step(config.nra_proof_out, fbb.front(), second, first,
                                           config.nra_readable_proof, i);
+                    }
+                    if (config.nra_interpolant) {
+                        interpolator->split(second, first, i);
                     }
                 }
             } else {
@@ -154,12 +161,18 @@ box ncbt_icp::solve(box b, contractor const & ctc, SMTConfig & config) {
                         output_split_step(config.nra_proof_out, fbb.front(), first, second,
                                           config.nra_readable_proof, index);
                     }
+                    if (config.nra_interpolant) {
+                        interpolator->split(first, second, index);
+                    }
                 } else {
                     box_stack.push_back(first);
                     box_stack.push_back(second);
                     if (config.nra_proof) {
                         output_split_step(config.nra_proof_out, fbb.front(), second, first,
                                           config.nra_readable_proof, index);
+                    }
+                    if (config.nra_interpolant) {
+                        interpolator->split(second, first, index);
                     }
                 }
                 bisect_var_stack.push_back(index);
@@ -222,12 +235,18 @@ box random_icp::solve(box b, contractor const & ctc, SMTConfig & config, double 
                         output_split_step(config.nra_proof_out, fbb.front(), first, second,
                                           config.nra_readable_proof, i);
                     }
+                    if (config.nra_interpolant) {
+                        interpolator->split(first, second, i);
+                    }
                 } else {
                     box_stack.push_back(first);
                     box_stack.push_back(second);
                     if (config.nra_proof) {
                         output_split_step(config.nra_proof_out, fbb.front(), second, first,
                                           config.nra_readable_proof, i);
+                    }
+                    if (config.nra_interpolant) {
+                        interpolator->split(second, first, i);
                     }
                 }
             } else {
