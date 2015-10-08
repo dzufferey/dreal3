@@ -23,9 +23,11 @@ private:
     stack<tuple<bool,int,double,bool>> split_stack; //larger first, variable index, split value, first part done
     stack<Enode *> partial_interpolants;
 
+    bool equals(Enode * a, Enode * b);
+
     Enode * make_leq(int variable, double value);
     Enode * make_geq(int variable, double value);
-    Enode * make_ite(Enode * cond, Enode * then, Enode * otherwise);
+    Enode * make_ite(int var, double upperBound, Enode * then, Enode * otherwise);
     Enode * make_and(Enode * a, Enode * b);
     Enode * make_or(Enode * a, Enode * b);
     Enode * make_true();

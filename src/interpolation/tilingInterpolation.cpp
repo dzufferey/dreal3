@@ -87,9 +87,9 @@ void tilingInterpolation::push_partial_interpolant(Enode * i) {
             int variable = get<1>(top);
             if (is_shared_var(variable)) {
                 if (get<0>(top)) {
-                    i = make_ite(make_leq(variable, get<2>(top)), i, it2);
+                    i = make_ite(variable, get<2>(top), i, it2);
                 } else {
-                    i = make_ite(make_leq(variable, get<2>(top)), it2, i);
+                    i = make_ite(variable, get<2>(top), it2, i);
                 }
             } else if (is_a_var(variable)) {
                 i = make_or(i, it2);
@@ -140,19 +140,43 @@ Enode * tilingInterpolation::make_geq(int variable, double value) {
     return parser_ctx->mkGeq( args );
 }
 
-Enode * tilingInterpolation::make_ite(Enode * cond, Enode * then, Enode * otherwise) {
-    Enode * args = parser_ctx->mkCons(cond, parser_ctx->mkCons(then, parser_ctx->mkCons(otherwise)));
-    return parser_ctx->mkIte( args );
+//TODO this part leaks memory
+Enode * tilingInterpolation::make_ite(int variable, double upperBound, Enode * then, Enode * otherwise) {
+    if (equals(then, otherwise)) {
+        return then;
+    } else {
+        auto left =  make_and(make_leq(variable, upperBound), then);
+        auto right = make_and(make_geq(variable, upperBound), otherwise);
+        return make_or(left, right);
+    }
 }
 
+//TODO this part leaks memory
 Enode * tilingInterpolation::make_and(Enode * a, Enode * b) {
-    Enode * args = parser_ctx->mkCons(a, parser_ctx->mkCons(b));
-    return parser_ctx->mkAnd( args );
+    if (a->isTrue() || b->isFalse()) {
+        return b;
+    } else if (b->isTrue() || a->isFalse()) {
+        return a;
+    } else if (equals(a, b)) {
+        return a;
+    } else {
+        Enode * args = parser_ctx->mkCons(a, parser_ctx->mkCons(b));
+        return parser_ctx->mkAnd( args );
+    }
 }
 
+//TODO this part leaks memory
 Enode * tilingInterpolation::make_or(Enode * a, Enode * b) {
-    Enode * args = parser_ctx->mkCons(a, parser_ctx->mkCons(b));
-    return parser_ctx->mkOr( args );
+    if (a->isTrue() || b->isFalse()) {
+        return a;
+    } else if (b->isTrue() || a->isFalse()) {
+        return b;
+    } else if (equals(a, b)) {
+        return a;
+    } else {
+        Enode * args = parser_ctx->mkCons(a, parser_ctx->mkCons(b));
+        return parser_ctx->mkOr( args );
+    }
 }
 
 Enode * tilingInterpolation::make_true() {
@@ -161,6 +185,18 @@ Enode * tilingInterpolation::make_true() {
 
 Enode * tilingInterpolation::make_false() {
     return parser_ctx->mkFalse();
+}
+
+bool tilingInterpolation::equals(Enode * a, Enode * b) {
+    if (a == NULL && b == NULL) {
+      return true;
+    } else if (a == NULL || b == NULL) {
+      return false;
+    }
+    return a->getId() == b->getId() &&
+           a->getArity() == b->getArity() &&
+           equals(a->getCar(), b->getCar()) &&
+           equals(a->getCdr(), b->getCdr());
 }
 
 tilingInterpolation* interpolator = NULL;
