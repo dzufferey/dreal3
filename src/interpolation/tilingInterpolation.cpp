@@ -1,7 +1,9 @@
 #include "interpolation/tilingInterpolation.h"
 
+#include <iostream>
 #include "util/proof.h"
 #include "opensmt/api/OpenSMTContext.h"
+
 extern OpenSMTContext * parser_ctx;
 
 namespace dreal {
@@ -17,7 +19,8 @@ tilingInterpolation::tilingInterpolation( box const & d,
     a_constraints(a_cstrs),
     b_constraints(b_cstrs),
     split_stack(),
-    partial_interpolants()
+    partial_interpolants(),
+    proof_size(0)
 {
     for (constraint const * c: a_cstrs) {
         for (Enode * v: c->get_vars()) {
@@ -62,16 +65,38 @@ void tilingInterpolation::pruning(box const & old_box, box const & new_box, cons
             }
         }
     }
+    proof_size += 1;
 }
 
 void tilingInterpolation::split(box const & first_box, box const & second_box, int variable) {
     tuple<double,bool> pivot = find_split(first_box, second_box, variable);
     split_stack.push(make_tuple(get<1>(pivot),variable,get<0>(pivot),false));
+    proof_size += 1;
 }
 
 Enode * tilingInterpolation::get_interpolant() {
     assert(partial_interpolants.size() == 1);
     return partial_interpolants.top();
+}
+
+unsigned long count_enodes(const Enode * n ) {
+    if (n == NULL) {
+        return  0;
+    } else {
+        auto ca = count_enodes(n->getCar());
+        auto cd = count_enodes(n->getCdr());
+        if (n->isTerm() /*&& n->hasSortBool()*/) {
+            return ca + cd + 1;
+        } else {
+            return ca + cd;
+        }
+    }
+}
+
+void tilingInterpolation::print_stats() {
+    Enode * itp = get_interpolant();
+    std::cout << "proof size: " << proof_size << std::endl;
+    std::cout << "interpolant size: " << count_enodes(itp) << std::endl;
 }
 
 void tilingInterpolation::push_partial_interpolant(Enode * i) {
@@ -193,10 +218,12 @@ bool tilingInterpolation::equals(Enode * a, Enode * b) {
     } else if (a == NULL || b == NULL) {
       return false;
     }
-    return a->getId() == b->getId() &&
-           a->getArity() == b->getArity() &&
-           equals(a->getCar(), b->getCar()) &&
-           equals(a->getCdr(), b->getCdr());
+    //TODO does it handles number correctly
+    return (a->hasValue() && b->hasValue() && a->getValue() == b->getValue()) ||
+           (a->getId() == b->getId() &&
+            a->getArity() == b->getArity() &&
+            equals(a->getCar(), b->getCar()) &&
+            equals(a->getCdr(), b->getCdr()));
 }
 
 tilingInterpolation* interpolator = NULL;

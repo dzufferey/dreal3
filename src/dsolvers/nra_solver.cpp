@@ -486,6 +486,7 @@ bool nra_solver::check(bool complete) {
             std::cout << "interpolant" << std::endl;
             itp->print(std::cout);
             std::cout << std::endl;
+            interpolator->print_stats();
         }
     } else {
         if (!complete && config.sat_theory_propagation) {

@@ -23,6 +23,8 @@ private:
     stack<tuple<bool,int,double,bool>> split_stack; //larger first, variable index, split value, first part done
     stack<Enode *> partial_interpolants;
 
+    unsigned long int proof_size;
+
     bool equals(Enode * a, Enode * b);
 
     Enode * make_leq(int variable, double value);
@@ -52,6 +54,8 @@ public:
     void split(box const & first_box, box const & second_box, int variable);
 
     Enode * get_interpolant();
+
+    void print_stats();
 };
 
 //a global reference to the interpolation
