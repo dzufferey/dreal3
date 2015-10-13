@@ -492,11 +492,22 @@ void contractor_capd_fwd_full::prune(fbbox & b, SMTConfig & config) const {
     intersect_params(b.back(), ic);
     if (b.back().is_empty()) {
         m_output  = ibex::BitSet::all(b.back().size());
+        // ======= Proof =======
+        if (config.nra_proof) {
+            ostringstream ss;
+            Enode const * const e = m_ctr->get_enode();
+            ss << (e->getPolarity() == l_False ? "!" : "") << e;
+            output_pruning_step(config.nra_proof_out, b.front(), b.back(), config.nra_readable_proof, ss.str());
+        }
+        if (config.nra_interpolant) {
+            interpolator->pruning(b.front(), b.back(), m_ctr);
+        }
         b.swap();
         return;
     }
     m_output  = ibex::BitSet::empty(b.back().size());
     if (!m_solver) {
+        assert(b.back() == b.front()); //TODO otherwise print the proof
         b.swap();
         return;
     }
@@ -728,12 +739,23 @@ void contractor_capd_bwd_full::prune(fbbox & b, SMTConfig & config) const {
     intersect_params(b.back(), ic);
     if (b.back().is_empty()) {
         m_output  = ibex::BitSet::all(b.back().size());
+        // ======= Proof =======
+        if (config.nra_proof) {
+            ostringstream ss;
+            Enode const * const e = m_ctr->get_enode();
+            ss << (e->getPolarity() == l_False ? "!" : "") << e;
+            output_pruning_step(config.nra_proof_out, b.front(), b.back(), config.nra_readable_proof, ss.str());
+        }
+        if (config.nra_interpolant) {
+            interpolator->pruning(b.front(), b.back(), m_ctr);
+        }
         b.swap();
         return;
     }
     m_output  = ibex::BitSet::empty(b.back().size());
     if (!m_solver) {
         // Trivial Case where there are only params and no real ODE vars.
+        assert(b.back() == b.front()); //TODO otherwise print the proof
         b.swap();
         return;
     }
@@ -807,6 +829,9 @@ void contractor_capd_bwd_full::prune(fbbox & b, SMTConfig & config) const {
         Enode const * const e = m_ctr->get_enode();
         ss << (e->getPolarity() == l_False ? "!" : "") << e;
         output_pruning_step(config.nra_proof_out, b.front(), b.back(), config.nra_readable_proof, ss.str());
+    }
+    if (config.nra_interpolant) {
+        interpolator->pruning(b.front(), b.back(), m_ctr);
     }
 
     b.swap();
