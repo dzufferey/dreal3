@@ -45,6 +45,7 @@ void tilingInterpolation::pruning(box const & old_box, box const & new_box, cons
     if (new_box.is_empty()) {
         //if the new box is empty then we have a leaf
         push_partial_interpolant(it);
+        proof_size += 1;
     } else {
         //we need to figure out what parts are pruned
         int max_var = domain.get_vars().size();
@@ -56,16 +57,17 @@ void tilingInterpolation::pruning(box const & old_box, box const & new_box, cons
                 tuple<bool,int,double,bool> pivot(false, i, snd_value.lb(), false);
                 split_stack.push(pivot);
                 push_partial_interpolant(it);
+                proof_size += 1;
             }
             //pruning on the upper end
             if (fst_value.ub() > snd_value.ub()) {
                 tuple<bool,int,double,bool> pivot(true, i, snd_value.ub(), false);
                 split_stack.push(pivot);
                 push_partial_interpolant(it);
+                proof_size += 1;
             }
         }
     }
-    proof_size += 1;
 }
 
 void tilingInterpolation::split(box const & first_box, box const & second_box, int variable) {
@@ -93,10 +95,25 @@ unsigned long count_enodes(const Enode * n ) {
     }
 }
 
+unsigned long count_ineq(const Enode * n ) {
+    if (n == NULL) {
+        return  0;
+    } else {
+        auto ca = count_ineq(n->getCar());
+        auto cd = count_ineq(n->getCdr());
+        if (n->isTerm() && (n->isLeq() || n->isGeq())) {
+            return ca + cd + 1;
+        } else {
+            return ca + cd;
+        }
+    }
+}
+
 void tilingInterpolation::print_stats() {
     Enode * itp = get_interpolant();
     std::cout << "proof size: " << proof_size << std::endl;
     std::cout << "interpolant size: " << count_enodes(itp) << std::endl;
+    std::cout << "#inequalities: " << count_ineq(itp) << std::endl;
 }
 
 void tilingInterpolation::push_partial_interpolant(Enode * i) {
@@ -184,6 +201,11 @@ Enode * tilingInterpolation::make_and(Enode * a, Enode * b) {
         return a;
     } else if (equals(a, b)) {
         return a;
+    } else if (( (a->isGeq() && b->isLeq()) ||
+                 (a->isLeq() && b->isGeq()) ) &&
+               equals(a->get1st(), b->get1st()) &&
+               equals(a->get2nd(), b->get2nd()) ) {
+        return parser_ctx->mkTrue();
     } else {
         Enode * args = parser_ctx->mkCons(a, parser_ctx->mkCons(b));
         return parser_ctx->mkAnd( args );
@@ -218,8 +240,9 @@ bool tilingInterpolation::equals(Enode * a, Enode * b) {
     } else if (a == NULL || b == NULL) {
       return false;
     }
-    //TODO does it handles number correctly
-    return (a->hasValue() && b->hasValue() && a->getValue() == b->getValue()) ||
+    return (a->isTerm() && b->isTerm() &&
+            a->hasValue() && b->hasValue() &&
+            a->getValue() == b->getValue()) ||
            (a->getId() == b->getId() &&
             a->getArity() == b->getArity() &&
             equals(a->getCar(), b->getCar()) &&
