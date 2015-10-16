@@ -70,6 +70,40 @@ void tilingInterpolation::pruning(box const & old_box, box const & new_box, cons
     }
 }
 
+void tilingInterpolation::integer_pruning(box const & old_box, box const & new_box, int i) {
+    Enode * it;
+    //TODO what about shared ? should we rather take the projections
+    if (is_a_var(i)) {
+        it = make_false();
+    } else {
+        assert(is_b_var(i));
+        it = make_true();
+    }
+    if (new_box.get_values()[i].is_empty()) {
+        //if the new box is empty then we have a leaf
+        push_partial_interpolant(it);
+        proof_size += 1;
+    } else {
+        //we need to figure out what parts are pruned
+        auto const fst_value = old_box.get_value(i);
+        auto const snd_value = new_box.get_value(i);
+        //pruning on the lower end
+        if (fst_value.lb() < snd_value.lb()) {
+            tuple<bool,int,double,bool> pivot(false, i, snd_value.lb(), false);
+            split_stack.push(pivot);
+            push_partial_interpolant(it);
+            proof_size += 1;
+        }
+        //pruning on the upper end
+        if (fst_value.ub() > snd_value.ub()) {
+            tuple<bool,int,double,bool> pivot(true, i, snd_value.ub(), false);
+            split_stack.push(pivot);
+            push_partial_interpolant(it);
+            proof_size += 1;
+        }
+    }
+}
+
 void tilingInterpolation::split(box const & first_box, box const & second_box, int variable) {
     tuple<double,bool> pivot = find_split(first_box, second_box, variable);
     split_stack.push(make_tuple(get<1>(pivot),variable,get<0>(pivot),false));

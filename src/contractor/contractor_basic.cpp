@@ -310,10 +310,6 @@ void contractor_fixpoint::worklist_fixpoint_alg(fbbox & b, SMTConfig & config) c
 contractor_int::contractor_int() : contractor_cell(contractor_kind::INT) { }
 void contractor_int::prune(fbbox & b, SMTConfig & config) const {
     DREAL_LOG_DEBUG << "contractor_int::prune";
-    // ======= Proof =======
-    if (config.nra_proof /*|| config.nra_interpolant*/) {
-        b.back() = b.front();
-    }
 
     m_input  = ibex::BitSet::empty(b.front().size());
     m_output = ibex::BitSet::empty(b.front().size());
@@ -321,11 +317,23 @@ void contractor_int::prune(fbbox & b, SMTConfig & config) const {
     ibex::IntervalVector & iv = b.front().get_values();
     for (Enode * e : b.front().get_vars()) {
         if (e->hasSortInt()) {
+            // ======= Proof =======
+            if (config.nra_proof || config.nra_interpolant) {
+                b.back() = b.front();
+            }
             auto const old_iv = iv[i];
             iv[i] = ibex::integer(iv[i]);
             if (old_iv != iv[i]) {
                 m_input.add(i);
                 m_output.add(i);
+            }
+            // ======= Proof =======
+            if (config.nra_proof) {
+                output_pruning_step(config.nra_proof_out, b.back(), b.front(), config.nra_readable_proof, "integer pruning");
+            }
+            // interpolant
+            if (config.nra_interpolant) {
+                interpolator->integer_pruning(b.back(), b.front(), i);
             }
             if (iv[i].is_empty()) {
                 b.front().set_empty();
@@ -334,16 +342,6 @@ void contractor_int::prune(fbbox & b, SMTConfig & config) const {
         }
         i++;
     }
-
-    // ======= Proof =======
-    if (config.nra_proof) {
-        output_pruning_step(config.nra_proof_out, b.back(), b.front(), config.nra_readable_proof, "integer pruning");
-    }
-    /* TODO
-    if (config.nra_interpolant) {
-        interpolator->pruning(b.back(), b.front(), ??? );
-    }
-    */
 }
 ostream & contractor_int::display(ostream & out) const {
     out << "contractor_int()";

@@ -51,6 +51,8 @@ public:
 
     void pruning(box const & old_box, box const & new_box, constraint const * cstr);
 
+    void integer_pruning(box const & old_box, box const & new_box, int variable);
+
     void split(box const & first_box, box const & second_box, int variable);
 
     Enode * get_interpolant();
