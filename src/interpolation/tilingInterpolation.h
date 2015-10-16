@@ -56,6 +56,8 @@ public:
     Enode * get_interpolant();
 
     void print_stats();
+    unsigned long int get_proof_size();
+    unsigned long int get_interpolant_size();
 };
 
 //a global reference to the interpolation

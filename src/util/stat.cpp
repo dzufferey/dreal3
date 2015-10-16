@@ -63,6 +63,14 @@ void stat::increase_prune() {
     m_num_of_prune.fetch_add(1, order);
 }
 
+void stat::add_proof_size(uint_fast64_t s) {
+    m_proof_size.fetch_add(s, order);
+}
+
+void stat::add_itp_size(uint_fast64_t s) {
+    m_itp_size.fetch_add(s, order);
+}
+
 void stat::reset() {
     m_num_of_complete_check.store(0, order);
     m_num_of_incomplete_check.store(0, order);
@@ -71,6 +79,8 @@ void stat::reset() {
     m_num_of_pop.store(0, order);
     m_num_of_branch.store(0, order);
     m_num_of_prune.store(0, order);
+    m_proof_size.store(0, order);
+    m_itp_size.store(0, order);
 }
 
 ostream & operator<<(ostream & out, stat const & stat) {
@@ -81,6 +91,8 @@ ostream & operator<<(ostream & out, stat const & stat) {
     out << "Number of Pop              = " << stat.m_num_of_pop << endl;
     out << "Number of Branch           = " << stat.m_num_of_branch << endl;
     out << "Number of Prune            = " << stat.m_num_of_prune << endl;
+    out << "Proof size                 = " << stat.m_proof_size << endl;
+    out << "Interpolant size           = " << stat.m_itp_size << endl;
     auto end_time = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> diff = end_time - stat.m_start_time;
     out << "Running time               = " << diff.count() << " s" << endl;

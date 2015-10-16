@@ -755,7 +755,17 @@ void contractor_capd_bwd_full::prune(fbbox & b, SMTConfig & config) const {
     m_output  = ibex::BitSet::empty(b.back().size());
     if (!m_solver) {
         // Trivial Case where there are only params and no real ODE vars.
-        assert(b.back() == b.front()); //TODO otherwise print the proof
+        if (b.back() != b.front()) {
+            if (config.nra_proof) {
+                ostringstream ss;
+                Enode const * const e = m_ctr->get_enode();
+                ss << (e->getPolarity() == l_False ? "!" : "") << e;
+                output_pruning_step(config.nra_proof_out, b.front(), b.back(), config.nra_readable_proof, ss.str());
+            }
+            if (config.nra_interpolant) {
+                interpolator->pruning(b.front(), b.back(), m_ctr);
+            }
+        }
         b.swap();
         return;
     }

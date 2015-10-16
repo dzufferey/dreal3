@@ -116,6 +116,15 @@ void tilingInterpolation::print_stats() {
     std::cout << "#inequalities: " << count_ineq(itp) << std::endl;
 }
 
+unsigned long int tilingInterpolation::get_proof_size() {
+    return proof_size;
+}
+
+unsigned long int tilingInterpolation::get_interpolant_size() {
+    Enode * itp = get_interpolant();
+    return count_ineq(itp);
+}
+
 void tilingInterpolation::push_partial_interpolant(Enode * i) {
     if (split_stack.empty()) {
         assert(partial_interpolants.empty());

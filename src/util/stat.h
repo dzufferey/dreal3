@@ -33,6 +33,8 @@ class stat {
     std::atomic<std::uint_fast64_t> m_num_of_pop;
     std::atomic<std::uint_fast64_t> m_num_of_branch;
     std::atomic<std::uint_fast64_t> m_num_of_prune;
+    std::atomic<std::uint_fast64_t> m_proof_size;
+    std::atomic<std::uint_fast64_t> m_itp_size;
 public:
     std::chrono::time_point<std::chrono::high_resolution_clock> m_start_time;
     stat();
@@ -43,6 +45,8 @@ public:
     void increase_pop();
     void increase_branch();
     void increase_prune();
+    void add_proof_size(uint_fast64_t s);
+    void add_itp_size(uint_fast64_t s);
     friend std::ostream & operator<<(std::ostream & out, stat const & stat);
 };
 

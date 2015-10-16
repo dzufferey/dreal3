@@ -453,6 +453,10 @@ bool nra_solver::check(bool complete) {
         auto b_cstrs = get<1>(a_b_cstr);
         DREAL_LOG_INFO << "a_cstrs: " << a_cstrs.size();
         DREAL_LOG_INFO << "b_cstrs: " << b_cstrs.size();
+        if (interpolator != NULL) {
+          delete interpolator;
+          interpolator = NULL;
+        }
         interpolator = new tilingInterpolation(m_box, a_cstrs, b_cstrs);
     }
     if (complete) {
@@ -487,6 +491,10 @@ bool nra_solver::check(bool complete) {
             itp->print(std::cout);
             std::cout << std::endl;
             interpolator->print_stats();
+            if (config.nra_use_stat) {
+              config.nra_stat.add_proof_size(interpolator->get_proof_size());
+              config.nra_stat.add_itp_size(interpolator->get_interpolant_size());
+            }
         }
     } else {
         if (!complete && config.sat_theory_propagation) {
