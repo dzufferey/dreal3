@@ -20,12 +20,11 @@ tuple<unordered_set<constraint const *>, unordered_set<constraint const *>> spli
                 }
             }
         }
-        assert(!(is_a && is_b));// constraint in both A and B. we might lift this later.
+        //assert(!(is_a && is_b));// constraint in both A and B. we might lift this later.
         assert(is_a || is_b); // constraint neither in A nor B.
         if (is_a) {
             a_cstrs.insert(c);
-        }
-        if (is_b) {
+        } else if (is_b) {
             b_cstrs.insert(c);
         }
     }
