@@ -31,6 +31,7 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 using std::cerr;
 using std::endl;
 using std::make_pair;
+using std::make_shared;
 
 namespace dreal {
 
@@ -98,13 +99,13 @@ TEST_CASE("capd_fwd") {
                            {static_cast<Enode*>(x_0), static_cast<Enode*>(p_0)}, {},
                            {static_cast<Enode*>(x_t), static_cast<Enode*>(p_t)}, {},
                            {},
-                           {make_pair("x", static_cast<Enode*>(rhs_x)),
-                            make_pair("p", static_cast<Enode*>(rhs_p))});
-    ode_constraint oc(ic, {});
+                           {make_pair(static_cast<Enode*>(vars[0]), static_cast<Enode*>(rhs_x)),
+                            make_pair(static_cast<Enode*>(vars[1]), static_cast<Enode*>(rhs_p))});
+    auto oc = make_shared<ode_constraint>(ic);
 
-    contractor c = mk_contractor_capd_fwd_full(b, &oc);
+    contractor c = mk_contractor_capd_full(b, oc, true);
 
-    cerr << oc << endl;
+    cerr << *oc << endl;
     cerr << b << endl;
     auto input_before = c.input();
     auto output_before = c.output();
@@ -138,7 +139,7 @@ TEST_CASE("capd_fwd") {
 
     auto used_ctcs = c.used_constraints();
     REQUIRE(used_ctcs.size() == 1);
-    REQUIRE(used_ctcs.find(&oc) != used_ctcs.end());
+    REQUIRE(used_ctcs.find(oc) != used_ctcs.end());
 
     opensmt_del_context(ctx);
 }
@@ -207,13 +208,13 @@ TEST_CASE("capd_bwd") {
                            {static_cast<Enode*>(x_0), static_cast<Enode*>(p_0)}, {},
                            {static_cast<Enode*>(x_t), static_cast<Enode*>(p_t)}, {},
                            {},
-                           {make_pair("x", static_cast<Enode*>(rhs_x)),
-                            make_pair("p", static_cast<Enode*>(rhs_p))});
-    ode_constraint oc(ic, {});
+                           {make_pair(static_cast<Enode*>(vars[0]), static_cast<Enode*>(rhs_x)),
+                            make_pair(static_cast<Enode*>(vars[1]), static_cast<Enode*>(rhs_p))});
+    auto oc = make_shared<ode_constraint>(ic);
 
-    contractor c = mk_contractor_capd_bwd_full(b, &oc);
+    contractor c = mk_contractor_capd_full(b, oc, false);
 
-    cerr << oc << endl;
+    cerr << *oc << endl;
     cerr << b << endl;
     auto input_before = c.input();
     auto output_before = c.output();
@@ -247,7 +248,7 @@ TEST_CASE("capd_bwd") {
 
     auto used_ctcs = c.used_constraints();
     REQUIRE(used_ctcs.size() == 1);
-    REQUIRE(used_ctcs.find(&oc) != used_ctcs.end());
+    REQUIRE(used_ctcs.find(oc) != used_ctcs.end());
 
     opensmt_del_context(ctx);
 }

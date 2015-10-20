@@ -2,13 +2,15 @@
 
 namespace dreal {
 
-tuple<unordered_set<constraint const *>, unordered_set<constraint const *>> splitAB(const std::vector<constraint const *> & cstrs) {
-    unordered_set<constraint const *> a_cstrs(100);
-    unordered_set<constraint const *> b_cstrs(100);
-    for (constraint const * c: cstrs) {
+std::tuple<std::unordered_set<std::shared_ptr<constraint>>,
+           std::unordered_set<std::shared_ptr<constraint>>>
+        splitAB(const std::vector<std::shared_ptr<constraint>> & cstrs) {
+    std::unordered_set<std::shared_ptr<constraint>> a_cstrs(100);
+    std::unordered_set<std::shared_ptr<constraint>> b_cstrs(100);
+    for (auto c: cstrs) {
         bool is_a = false;
         bool is_b = false;
-        assert(c != NULL);
+        assert(c.get() != NULL);
         for (Enode const * n: c->get_enodes()){
             assert(n != NULL);
             auto a = n->get_attribute(); 
@@ -28,7 +30,21 @@ tuple<unordered_set<constraint const *>, unordered_set<constraint const *>> spli
             b_cstrs.insert(c);
         }
     }
-    return tuple<unordered_set<constraint const *>, unordered_set<constraint const *>>(a_cstrs, b_cstrs);
+    return std::tuple<std::unordered_set<std::shared_ptr<constraint>>, std::unordered_set<std::shared_ptr<constraint>>>(a_cstrs, b_cstrs);
+}
+
+bool is_bound(std::shared_ptr<constraint> & cstr) {
+  for (Enode const * n: cstr->get_enodes()){
+    if ((n->isGeq() || n->isLeq()) &&
+        ( (n->get1st()->isVar() && n->get2nd()->hasValue()) ||
+          (n->get2nd()->isVar() && n->get1st()->hasValue()) )
+       ) {
+      //it is a bound, nothing to do
+    } else {
+      return false;
+    }
+  }
+  return true;
 }
 
 }

@@ -1,7 +1,5 @@
 /*********************************************************************
 Author: Soonho Kong <soonhok@cs.cmu.edu>
-        Sicun Gao <sicung@cs.cmu.edu>
-        Edmund Clarke <emc@cs.cmu.edu>
 
 dReal -- Copyright (C) 2013 - 2015, Soonho Kong, Sicun Gao, and Edmund Clarke
 
@@ -24,6 +22,7 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include <iostream>
 #include <iterator>
 #include <map>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -36,20 +35,30 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include "ibex/ibex_ExprCopy.h"
 #include "util/logging.h"
 
-using std::back_inserter;
 using std::cerr;
 using std::copy;
 using std::endl;
 using std::initializer_list;
+using std::logic_error;
 using std::make_pair;
+using std::make_shared;
 using std::map;
 using std::ostream;
 using std::pair;
 using std::string;
 using std::to_string;
+using std::unique_ptr;
+using std::shared_ptr;
 using std::unordered_map;
 using std::unordered_set;
 using std::vector;
+
+namespace std {
+// Hash for nonlinear_constraint
+size_t hash<dreal::nonlinear_constraint>::operator()(dreal::nonlinear_constraint const & ctr) const {
+    return hash<uintptr_t>()(reinterpret_cast<uintptr_t>(ctr.get_numctr().get()));
+}
+}  // namespace std
 
 namespace dreal {
 
@@ -67,9 +76,6 @@ ostream & operator<<(ostream & out, constraint_type const & ty) {
     case constraint_type::ForallT:
         out << "ForallT";
         break;
-    case constraint_type::Forall:
-        out << "Forall";
-        break;
     case constraint_type::Exists:
         out << "Exists";
         break;
@@ -79,7 +85,6 @@ ostream & operator<<(ostream & out, constraint_type const & ty) {
     }
     return out;
 }
-
 
 // ====================================================
 // constraint
@@ -106,7 +111,7 @@ constraint::constraint(constraint_type ty, vector<Enode *> const & enodes)
 }
 constraint::constraint(constraint_type ty, vector<Enode *> const & enodes_1, vector<Enode *> const & enodes_2)
     : m_type(ty), m_enodes(enodes_1), m_vars(build_vars_from_enodes({enodes_1, enodes_2})) {
-    copy(enodes_2.begin(), enodes_2.end(), back_inserter(m_enodes));
+    m_enodes.insert(m_enodes.end(), enodes_2.begin(), enodes_2.end());
 }
 ostream & operator<<(ostream & out, constraint const & c) {
     return c.display(out);
@@ -115,25 +120,11 @@ ostream & operator<<(ostream & out, constraint const & c) {
 // ====================================================
 // Nonlinear constraint
 // ====================================================
-nonlinear_constraint::nonlinear_constraint(Enode * const e, lbool const p, std::unordered_map<Enode*, ibex::Interval> const & subst)
-    : constraint(constraint_type::Nonlinear, e), m_is_neq(p == l_False && e->isEq()),
-      m_is_aligned(false), m_numctr(nullptr) {
-    map<string, ibex::Variable const> var_map;
-    std::unique_ptr<ibex::ExprCtr const> exprctr(translate_enode_to_exprctr(var_map, e, p, subst));
-    m_var_array.resize(var_map.size());
-    unsigned i = 0;
-    for (auto const item : var_map) {
-        m_var_array.set_ref(i++, item.second);
-    }
-    m_numctr.reset(new ibex::NumConstraint(m_var_array, *exprctr));
-    DREAL_LOG_INFO << "nonlinear_constraint: "<< *this;
-}
-
 nonlinear_constraint::nonlinear_constraint(Enode * const e,
                                            unordered_set<Enode*> const & var_set,
-                                           lbool const p, std::unordered_map<Enode*, ibex::Interval> const & subst)
+                                           lbool const p, unordered_map<Enode*, ibex::Interval> const & subst)
     : constraint(constraint_type::Nonlinear, e), m_is_neq(p == l_False && e->isEq()),
-      m_is_aligned(true), m_numctr(nullptr), m_var_array(var_set.size()) {
+      m_numctr(nullptr), m_var_array(var_set.size()) {
     // Build var_map and var_array
     // Need to pass a fresh copy of var_array everytime it builds NumConstraint
     auto var_map = build_var_map(var_set);
@@ -142,7 +133,7 @@ nonlinear_constraint::nonlinear_constraint(Enode * const e,
     for (auto const item : var_map) {
         m_var_array.set_ref(i++, item.second);
     }
-    std::unique_ptr<ibex::ExprCtr const> exprctr(translate_enode_to_exprctr(var_map, e, p, subst));
+    unique_ptr<ibex::ExprCtr const> exprctr(translate_enode_to_exprctr(var_map, e, p, subst));
     m_numctr.reset(new ibex::NumConstraint(m_var_array, *exprctr));
     DREAL_LOG_INFO << "nonlinear_constraint: "<< *this;
 }
@@ -260,7 +251,7 @@ pair<lbool, ibex::Interval> nonlinear_constraint::eval(box const & b) const {
 ode_constraint::ode_constraint(integral_constraint const & integral, vector<forallt_constraint> const & invs)
     : constraint(constraint_type::ODE, integral.get_enodes()), m_int(integral), m_invs(invs) {
     for (auto const & inv : invs) {
-        copy(inv.get_enodes().begin(), inv.get_enodes().end(), back_inserter(m_enodes));
+        m_enodes.insert(m_enodes.end(), inv.get_enodes().begin(), inv.get_enodes().end());
     }
 }
 ostream & ode_constraint::display(ostream & out) const {
@@ -290,22 +281,22 @@ integral_constraint mk_integral_constraint(Enode * const e, unordered_map<string
     string key = string("flow_") + to_string(flow_id);
     auto const it = flow_map.find(key);
     if (it == flow_map.end()) {
-        throw std::logic_error(key + " is not in flow_map. Failed to create integral constraint");
+        throw logic_error(key + " is not in flow_map. Failed to create integral constraint");
     }
     flow const & _flow = it->second;
-    vector<string> const & flow_vars = _flow.get_vars();
+    vector<Enode *> const & flow_vars = _flow.get_vars();
     vector<Enode *> const & flow_odes = _flow.get_odes();
     vector<Enode *> vars_0, vars_t, pars_0, pars_t;
-    vector<string> par_lhs_names;
-    vector<pair<string, Enode *>> odes;
+    vector<Enode *> par_lhs_names;
+    vector<pair<Enode *, Enode *>> odes;
 
     for (unsigned i = 0; i < flow_vars.size(); i++) {
         Enode * const var_0 = tmp->getCar();
         tmp = tmp->getCdr();
         Enode * const var_t = tmp->getCar();
         tmp = tmp->getCdr();
-        string const & ode_var = flow_vars[i];
-        Enode * const ode_rhs  = flow_odes[i];
+        Enode * const ode_var = flow_vars[i];
+        Enode * const ode_rhs = flow_odes[i];
 
         if (ode_rhs->isConstant() && ode_rhs->getValue() == 0.0) {
             // Parameter
@@ -327,8 +318,8 @@ integral_constraint mk_integral_constraint(Enode * const e, unordered_map<string
 integral_constraint::integral_constraint(Enode * const e, unsigned const flow_id, Enode * const time_0, Enode * const time_t,
                                          vector<Enode *> const & vars_0, vector<Enode *> const & pars_0,
                                          vector<Enode *> const & vars_t, vector<Enode *> const & pars_t,
-                                         vector<string> const & par_lhs_names,
-                                         vector<pair<string, Enode *>> const & odes)
+                                         vector<Enode *> const & par_lhs_names,
+                                         vector<pair<Enode *, Enode *>> const & odes)
     : constraint(constraint_type::Integral, e),
       m_flow_id(flow_id), m_time_0(time_0), m_time_t(time_t),
       m_vars_0(vars_0), m_pars_0(pars_0), m_vars_t(vars_t), m_pars_t(pars_t),
@@ -347,8 +338,53 @@ ostream & integral_constraint::display(ostream & out) const {
     return out;
 }
 
+// ====================================================
+// ForallT constraint
+// ====================================================
 
-forallt_constraint mk_forallt_constraint(Enode * const e) {
+vector<shared_ptr<nonlinear_constraint>> make_nlctrs(Enode * const e,
+unordered_set<Enode*> const & var_set, lbool const p) {
+    vector<shared_ptr<nonlinear_constraint>> ret;
+    if (e->isTrue()) {
+        return ret;
+    }
+    if (e->isFalse()) {
+        DREAL_LOG_FATAL << "false is not a valid invariant (forall_t constraint)";
+        throw logic_error("false is not a valid invariant (forall_t constraint)");
+    }
+    if (e->isNot()) {
+        return make_nlctrs(e->get1st(), var_set, !p);
+    }
+    if (e->isAnd()) {
+        Enode * tmp = e->getCdr();
+        while (!tmp->isEnil()) {
+            auto const nlctrs = make_nlctrs(e->get1st(), var_set, !p);
+            ret.insert(ret.end(), nlctrs.begin(), nlctrs.end());
+            tmp = tmp->getCdr();
+        }
+        return ret;
+    }
+    if (e->isOr()) {
+        DREAL_LOG_FATAL << "or is not a valid invariant for now, (forall_t constraint)";
+        throw logic_error("false is not a valid invariant for now, (forall_t constraint)");
+    }
+    ret.push_back(make_shared<nonlinear_constraint>(e, var_set, p));
+    return ret;
+}
+
+forallt_constraint::forallt_constraint(Enode * const e, unordered_set<Enode*> const & var_set, unsigned const flow_id, Enode * const time_0, Enode * const time_t, Enode * const inv)
+    : constraint(constraint_type::ForallT, e), m_flow_id(flow_id), m_time_0(time_0), m_time_t(time_t), m_inv(inv) {
+    m_nl_ctrs = make_nlctrs(inv, var_set, l_True);
+}
+ostream & forallt_constraint::display(ostream & out) const {
+    out << "forallt_constraint = " << m_enodes[0] << endl;
+    out << "\t" << "flow_id = " << m_flow_id << endl;
+    out << "\t" << "time = [" << m_time_0 << "," << m_time_t << "]" << endl;
+    out << "\t" << "inv : " << m_inv << endl;
+    return out;
+}
+
+forallt_constraint mk_forallt_constraint(Enode * const e, unordered_set<Enode*> const & var_set) {
     // nra_solver::inform: (forallt 2 0 time_9 (<= 0 v_9_t))
     Enode const * tmp = e->getCdr();
     unsigned const flow_id = tmp->getCar()->getValue();
@@ -361,41 +397,9 @@ forallt_constraint mk_forallt_constraint(Enode * const e) {
     tmp = tmp->getCdr();
 
     Enode * const inv = tmp->getCar();
-    return forallt_constraint(e, flow_id, time_0, time_t, inv);
+    return forallt_constraint(e, var_set, flow_id, time_0, time_t, inv);
 }
 
-// ====================================================
-// ForallT constraint
-// ====================================================
-forallt_constraint::forallt_constraint(Enode * const e, unsigned const flow_id, Enode * const time_0, Enode * const time_t, Enode * const inv)
-    : constraint(constraint_type::ForallT, e), m_flow_id(flow_id), m_time_0(time_0), m_time_t(time_t), m_inv(inv) {
-}
-ostream & forallt_constraint::display(ostream & out) const {
-    out << "forallt_constraint = " << m_enodes[0] << endl;
-    out << "\t" << "flow_id = " << m_flow_id << endl;
-    out << "\t" << "time = [" << m_time_0 << "," << m_time_t << "]" << endl;
-    out << "\t" << "inv : " << m_inv << endl;
-    return out;
-}
-
-// ====================================================
-// Forall constraint
-// ====================================================
-forall_constraint::forall_constraint(Enode * const e, lbool const p)
-    : constraint(constraint_type::Forall, e), m_forall_vars(e->get_forall_vars()), m_polarity(p) {
-}
-unordered_set<Enode *> forall_constraint::get_forall_vars() const {
-    return m_forall_vars;
-}
-ostream & forall_constraint::display(ostream & out) const {
-    out << "forall_constraint = "
-        << (m_polarity == l_True ? "" : "!")
-        << m_enodes[0] << endl;
-    for (Enode * const var : m_forall_vars) {
-        out << "quantified var = " << var << endl;
-    }
-    return out;
-}
 
 // ====================================================
 // Generic Forall constraint

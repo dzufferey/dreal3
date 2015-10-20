@@ -17,7 +17,6 @@ You should have received a copy of the GNU General Public License
 along with dReal. If not, see <http://www.gnu.org/licenses/>.
 *********************************************************************/
 
-#include "dsolvers/nra_solver.h"
 #include <algorithm>
 #include <exception>
 #include <iomanip>
@@ -31,19 +30,21 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include <tuple>
 #include <utility>
 #include <vector>
+#include "dsolvers/nra_solver.h"
 #include "./config.h"
-#include "ibex/ibex.h"
-#include "util/box.h"
 #include "constraint/constraint.h"
 #include "contractor/contractor.h"
+#include "ibex/ibex.h"
+#include "icp/icp.h"
+#include "json/json.hpp"
+#include "util/box.h"
 #include "util/ibex_enode.h"
 #include "util/logging.h"
-#include "icp/icp.h"
 #include "util/stat.h"
-#include "json/json.hpp"
 #include "util/proof.h"
 #include "interpolation/tilingInterpolation.h"
 #include "interpolation/interpolationUtils.h"
+#include "util/strategy.h"
 
 using ibex::IntervalVector;
 using nlohmann::json;
@@ -51,15 +52,18 @@ using std::all_of;
 using std::boolalpha;
 using std::cerr;
 using std::cout;
+using std::dynamic_pointer_cast;
 using std::endl;
 using std::get;
 using std::logic_error;
 using std::make_pair;
+using std::make_shared;
 using std::map;
 using std::numeric_limits;
 using std::ofstream;
 using std::pair;
 using std::runtime_error;
+using std::shared_ptr;
 using std::sort;
 using std::string;
 using std::unique_ptr;
@@ -87,6 +91,78 @@ lbool nra_solver::inform(Enode * e) {
     // Collect Literal
     m_lits.push_back(e);
     m_need_init = true;
+    return l_Undef;
+}
+
+// Simplify box b using a constraint e.
+// Return l_True   if a constriant is used and not needed after this.
+// Return l_False  if a constriant is used and but still needed after this.
+// Otherwise, return l_Undef
+lbool simplify(Enode * e, lbool p, box & b) {
+    if (e->isNot()) {
+        return simplify(e, !p, b);
+    }
+    if (e->getArity() != 2) {
+        return l_Undef;
+    }
+    Enode * const first = e->get1st();
+    Enode * const second = e->get2nd();
+    if ((p == l_True && (e->isGt() || e->isGeq())) ||
+        (p == l_False && (e->isLt() || e->isLeq()))) {
+        if (first->isVar() && second->isConstant()) {
+            // v >= c
+            auto & iv = b[first];
+            iv &= ibex::Interval(second->getValue(), iv.ub());
+            if (iv.is_empty()) { b.set_empty(); }
+            return l_True;
+        } else if (first->isConstant() && second->isVar()) {
+            // c >= v
+            auto & iv = b[second];
+            iv &= ibex::Interval(iv.lb(), first->getValue());
+            if (iv.is_empty()) { b.set_empty(); }
+            return l_True;
+        }
+    } else if ((p == l_True && (e->isLt() || e->isLeq())) ||
+               (p == l_False && (e->isGt() || e->isGeq()))) {
+        if (first->isVar() && second->isConstant()) {
+            // v <= c
+            auto & iv = b[first];
+            iv &= ibex::Interval(iv.lb(), second->getValue());
+            if (iv.is_empty()) { b.set_empty(); }
+            return l_True;
+        } else if (first->isConstant() && second->isVar()) {
+            // c <= v
+            auto & iv = b[second];
+            iv &= ibex::Interval(first->getValue(), iv.ub());
+            if (iv.is_empty()) { b.set_empty(); }
+            return l_True;
+        }
+    } else if (p == l_True && e->isEq()) {
+        if (first->isVar() && second->isConstant()) {
+            // v == c
+            auto & iv = b[first];
+            iv &= ibex::Interval(second->getValue(), second->getValue());
+            if (iv.is_empty()) { b.set_empty(); }
+            return l_True;
+        } else if (first->isConstant() && second->isVar()) {
+            // c == v
+            auto & iv = b[second];
+            iv &= ibex::Interval(first->getValue(), first->getValue());
+            if (iv.is_empty()) { b.set_empty(); }
+            return l_True;
+        } else if (first->isVar() && second->isVar()) {
+            // v1 == v2
+            auto & iv_1 = b[first];
+            auto & iv_2 = b[second];
+            iv_1 &= iv_2;
+            iv_2 = iv_1;
+            if (iv_1.is_empty()) {
+                b.set_empty();
+                return l_True;
+            }
+            return l_False;
+        }
+    }
     return l_Undef;
 }
 
@@ -122,7 +198,23 @@ bool nra_solver::assertLit(Enode * e, bool reason) {
     }
     auto it = m_ctr_map.find(make_pair(e, e->getPolarity() == l_True));
     if (it != m_ctr_map.end()) {
-        m_stack.push_back(it->second.get());
+        shared_ptr<constraint> const ctr = it->second;
+        // Try to prune box using the constraint via callign simplify
+        lbool const simplify_result = simplify(e, e->getPolarity(), m_box);
+        if (simplify_result == l_True) {
+            // Box was pruned by it, and we don't need to add the constraint to the stack
+            m_used_constraint_vec.push_back(ctr);
+            if (m_box.is_empty()) {
+                explanation = generate_explanation(m_used_constraint_vec);
+                return false;
+            } else {
+                return true;
+            }
+        } else if (simplify_result == l_False) {
+            // Box was pruned by it, but we do need to add add the constraint to the stack
+            m_used_constraint_vec.push_back(ctr);
+        }
+        m_stack.push_back(ctr);
     } else if (e->isForallT()) {
         // TODO(soonhok): implement this
         return true;
@@ -138,34 +230,28 @@ bool nra_solver::assertLit(Enode * e, bool reason) {
 }
 
 // Update ctr_map by adding new nonlinear_constraints
-void initialize_nonlinear_constraints(map<pair<Enode*, bool>, unique_ptr<constraint>> & ctr_map,
-                                      vector<Enode *> const & lits) {
-    // 1. Collect all variables (Enode *) in literals
-    unordered_set<Enode *> var_set;
-    for (Enode * const l : lits) {
-        unordered_set<Enode *> const & vars = l->get_vars();
-        var_set.insert(vars.begin(), vars.end());
-    }
-
-    // 2. Create Nonlinear constraints.
+void initialize_nonlinear_constraints(map<pair<Enode*, bool>, shared_ptr<constraint>> & ctr_map,
+                                      vector<Enode *> const & lits,
+                                      unordered_set<Enode *> const & var_set) {
+    // Create Nonlinear constraints.
     for (Enode * const l : lits) {
         auto it_nc_pos = ctr_map.find(make_pair(l, true));
         auto it_nc_neg = ctr_map.find(make_pair(l, false));
         if (it_nc_pos == ctr_map.end()) {
-            unique_ptr<constraint> nc_pos(new nonlinear_constraint(l, var_set, l_True));
+            auto nc_pos = make_shared<nonlinear_constraint>(l, var_set, l_True);
             DREAL_LOG_INFO << "nra_solver::initialize_constraints: collect NonlinearConstraint (+): " << *nc_pos;
-            ctr_map.emplace(make_pair(l, true),  move(nc_pos));
+            ctr_map.emplace(make_pair(l, true), nc_pos);
         }
         if (it_nc_neg == ctr_map.end()) {
-            unique_ptr<constraint> nc_neg(new nonlinear_constraint(l, var_set, l_False));
+            auto nc_neg = make_shared<nonlinear_constraint>(l, var_set, l_False);
             DREAL_LOG_INFO << "nra_solver::initialize_constraints: collect NonlinearConstraint (-): " << *nc_neg;
-            ctr_map.emplace(make_pair(l, false), move(nc_neg));
+            ctr_map.emplace(make_pair(l, false), nc_neg);
         }
     }
 }
 
 // Update ctr_map by adding new ode constraints, from the information collected in ints and invs
-void initialize_ode_constraints(map<pair<Enode*, bool>, unique_ptr<constraint>> & ctr_map,
+void initialize_ode_constraints(map<pair<Enode*, bool>, shared_ptr<constraint>> & ctr_map,
                                 vector<integral_constraint> const & ints,
                                 vector<forallt_constraint> const & invs) {
     // Attach the corresponding forallT literals to integrals
@@ -187,9 +273,9 @@ void initialize_ode_constraints(map<pair<Enode*, bool>, unique_ptr<constraint>> 
                 }
             }
         }
-        unique_ptr<constraint> oc(new ode_constraint(ic, local_invs));
+        shared_ptr<constraint> oc(new ode_constraint(ic, local_invs));
         DREAL_LOG_INFO << "nra_solver::initialize_constraints: collect ODEConstraint: " << *oc;
-        ctr_map.emplace(make_pair(ic.get_enode(), true), move(oc));
+        ctr_map.emplace(make_pair(ic.get_enode(), true), oc);
     }
 }
 
@@ -199,6 +285,12 @@ void nra_solver::initialize_constraints(vector<Enode *> const & lits) {
     vector<integral_constraint> ints;
     vector<forallt_constraint> invs;
     vector<Enode *> nonlinear_lits;
+    unordered_set<Enode *> var_set;
+    for (Enode * l : lits) {
+        // collect var_set
+        unordered_set<Enode *> const & vars = l->get_exist_vars();
+        var_set.insert(vars.begin(), vars.end());
+    }
     for (Enode * l : lits) {
         // Partition ODE-related constraint into integrals and forallTs
         if (l->isIntegral()) {
@@ -209,17 +301,17 @@ void nra_solver::initialize_constraints(vector<Enode *> const & lits) {
             auto it_fc_pos = m_ctr_map.find(make_pair(l, true));
             auto it_fc_neg = m_ctr_map.find(make_pair(l, false));
             if (it_fc_pos == m_ctr_map.end()) {
-                unique_ptr<constraint> fc_pos(new generic_forall_constraint(l, l_True));
+                shared_ptr<constraint> fc_pos(new generic_forall_constraint(l, l_True));
                 DREAL_LOG_INFO << "nra_solver::initialize_constraints: collect GenericForallConstraint (+): " << *fc_pos;
-                m_ctr_map.emplace(make_pair(l, true), move(fc_pos));
+                m_ctr_map.emplace(make_pair(l, true), fc_pos);
             }
             if (it_fc_neg == m_ctr_map.end()) {
-                unique_ptr<constraint> fc_neg (new generic_forall_constraint(l, l_False));
+                shared_ptr<constraint> fc_neg (new generic_forall_constraint(l, l_False));
                 DREAL_LOG_INFO << "nra_solver::initialize_constraints: collect GenericForallConstraint (-): " << *fc_neg;
-                m_ctr_map.emplace(make_pair(l, false), move(fc_neg));
+                m_ctr_map.emplace(make_pair(l, false), fc_neg);
             }
         } else if (l->isForallT()) {
-            forallt_constraint fc = mk_forallt_constraint(l);
+            forallt_constraint fc = mk_forallt_constraint(l, var_set);
             invs.push_back(fc);
         } else if (l->get_forall_vars().empty()) {
             nonlinear_lits.push_back(l);
@@ -229,101 +321,7 @@ void nra_solver::initialize_constraints(vector<Enode *> const & lits) {
         }
     }
     initialize_ode_constraints(m_ctr_map, ints, invs);
-    initialize_nonlinear_constraints(m_ctr_map, nonlinear_lits);
-}
-
-contractor build_contractor(box const & box, scoped_vec<constraint *> const &ctrs, bool const complete, SMTConfig & config) {
-    vector<nonlinear_constraint const *> nl_ctrs;
-    vector<contractor> nl_ctcs;
-    nl_ctcs.reserve(ctrs.size());
-    vector<contractor> nl_eval_ctcs;
-    nl_eval_ctcs.reserve(ctrs.size());
-    vector<contractor> ode_ctcs;
-    ode_ctcs.reserve(ctrs.size());
-    vector<contractor> forall_ctcs;
-    forall_ctcs.reserve(ctrs.size());
-    vector<contractor> generic_forall_ctcs;
-    generic_forall_ctcs.reserve(ctrs.size());
-    // Add contractor_sample if --sample option is used
-    if (config.nra_sample > 0 && complete) {
-        nl_ctcs.push_back(mk_contractor_sample(config.nra_sample, ctrs.get_vec()));
-    }
-    for (constraint * const ctr : ctrs.get_reverse()) {
-        switch (ctr->get_type()) {
-        case constraint_type::Nonlinear: {
-            nonlinear_constraint const * const nl_ctr = dynamic_cast<nonlinear_constraint *>(ctr);
-            if (!nl_ctr->is_neq()) {
-                nl_ctcs.push_back(mk_contractor_ibex_fwdbwd(box, nl_ctr));
-                nl_ctrs.push_back(nl_ctr);
-            } else {
-                // Case: != (not equal), do nothing
-            }
-            nl_eval_ctcs.push_back(mk_contractor_eval(box, nl_ctr));
-            break;
-        }
-#ifdef SUPPORT_ODE
-        case constraint_type::ODE: {
-            // TODO(soonhok): add heuristics to choose fwd/bwd
-            if (complete) {
-                ode_ctcs.emplace_back(
-                    mk_contractor_try(
-                        mk_contractor_capd_fwd_full(box, dynamic_cast<ode_constraint *>(ctr), config.nra_ODE_taylor_order, config.nra_ODE_grid_size)));
-                if (!config.nra_ODE_forward_only) {
-                    ode_ctcs.emplace_back(
-                        mk_contractor_try(
-                            mk_contractor_capd_bwd_full(box, dynamic_cast<ode_constraint *>(ctr), config.nra_ODE_taylor_order, config.nra_ODE_grid_size)));
-                }
-            }
-            break;
-        }
-#endif
-        case constraint_type::GenericForall: {
-            generic_forall_constraint const * const generic_forall_ctr = dynamic_cast<generic_forall_constraint *>(ctr);
-            generic_forall_ctcs.push_back(mk_contractor_generic_forall(box, generic_forall_ctr));
-            break;
-        }
-        default:
-            DREAL_LOG_FATAL << "Unknown Constraint Type: " << ctr->get_type() << " " <<  *ctr << endl;
-        }
-    }
-    if (config.nra_polytope) {
-        nl_ctcs.push_back(mk_contractor_ibex_polytope(config.nra_precision, box.get_vars(), nl_ctrs));
-    }
-    nl_ctcs.push_back(mk_contractor_int());
-    // Add contractor_sample if --sample option is used
-    if (config.nra_aggressive > 0 && complete) {
-        nl_ctcs.push_back(mk_contractor_sample(config.nra_aggressive, ctrs.get_vec()));
-    }
-
-    auto term_cond = [](dreal::box const & old_box, dreal::box const & new_box) {
-        double const threshold = 0.01;
-        // If there is a dimension which is improved more than
-        // threshold, we stop the current fixed-point computation.
-        for (unsigned i = 0; i < old_box.size(); i++) {
-            double const new_box_i = new_box[i].diam();
-            double const old_box_i = old_box[i].diam();
-            if (new_box_i == numeric_limits<double>::infinity()) {
-                continue;
-            }
-            if (old_box_i == 0) {
-                // The i-th dimension was already a point, nothing to improve.
-                continue;
-            }
-            double const improvement = 1 - new_box_i / old_box_i;
-            assert(!std::isnan(improvement));
-            if (improvement >= threshold) {
-                return false;
-            }
-        }
-        return true;
-    };
-    if (complete && ode_ctcs.size() > 0) {
-        return mk_contractor_fixpoint(term_cond,
-                                      {nl_ctcs, forall_ctcs, generic_forall_ctcs, ode_ctcs, nl_eval_ctcs});
-    } else {
-        return mk_contractor_fixpoint(term_cond,
-                                      {nl_ctcs, forall_ctcs, generic_forall_ctcs, nl_eval_ctcs});
-    }
+    initialize_nonlinear_constraints(m_ctr_map, nonlinear_lits, var_set);
 }
 
 void nra_solver::initialize(vector<Enode *> const & lits) {
@@ -375,19 +373,14 @@ void nra_solver::handle_sat_case(box const & b) const {
         delete interpolator;
         interpolator = NULL;
     }
-    // --model option
-    if (config.nra_model && config.nra_multiple_soln == 1) {
-        // Only output here when --multiple_soln is not used
-        output_solution(b, config);
-    }
 #ifdef SUPPORT_ODE
     // --visualize option
     if (config.nra_json) {
         json traces = {};
         // Need to run ODE pruning operator once again to generate a trace
-        for (constraint * const ctr : m_stack) {
+        for (shared_ptr<constraint> const ctr : m_stack) {
             if (ctr->get_type() == constraint_type::ODE) {
-                contractor_capd_fwd_full fwd_full(b, dynamic_cast<ode_constraint *>(ctr), config.nra_ODE_taylor_order, config.nra_ODE_grid_size);
+                contractor_capd_full fwd_full(b, dynamic_pointer_cast<ode_constraint>(ctr), true, config.nra_ODE_taylor_order, config.nra_ODE_grid_size);
                 json trace = fwd_full.generate_trace(b, config);
                 traces.push_back(trace);
             }
@@ -407,8 +400,8 @@ void nra_solver::handle_deduction() {
         if (l->getPolarity() == l_Undef && !l->isDeduced()) {
             auto it = m_ctr_map.find(make_pair(l, true));
             if (it != m_ctr_map.end()) {
-                constraint * ctr = it->second.get();
-                nonlinear_constraint const * const nl_ctr = dynamic_cast<nonlinear_constraint *>(ctr);
+                shared_ptr<constraint> ctr = it->second;
+                shared_ptr<nonlinear_constraint> const nl_ctr = dynamic_pointer_cast<nonlinear_constraint>(ctr);
                 if (nl_ctr) {
                     pair<lbool, ibex::Interval> p = nl_ctr->eval(m_box);
                     if (p.first == l_False) {
@@ -435,16 +428,17 @@ bool nra_solver::check(bool complete) {
     if (m_stack.size() == 0) { return true; }
     DREAL_LOG_INFO << "nra_solver::check(complete = " << boolalpha << complete << ")"
                    << "stack size = " << m_stack.size();
-    m_ctc = build_contractor(m_box, m_stack, complete, config);
+    default_strategy stg;
+    m_ctc = stg.build_contractor(m_box, m_stack, complete, config);
     // initialize the proof
     if (config.nra_proof) {
          output_start(config.nra_proof_out, m_box, config.nra_readable_proof);
     }
     // initialize the interpolant
     if (config.nra_interpolant) {
-        std::vector<constraint const *> cstrs(m_stack.size());
+        std::vector<shared_ptr<constraint>> cstrs(m_stack.size());
         int i = 0;
-        for (constraint const * ptr: m_stack) {
+        for (auto ptr: m_stack) {
           cstrs[i] = ptr;
           i++;
         }
@@ -453,10 +447,6 @@ bool nra_solver::check(bool complete) {
         auto b_cstrs = get<1>(a_b_cstr);
         DREAL_LOG_INFO << "a_cstrs: " << a_cstrs.size();
         DREAL_LOG_INFO << "b_cstrs: " << b_cstrs.size();
-        if (interpolator != NULL) {
-          delete interpolator;
-          interpolator = NULL;
-        }
         interpolator = new tilingInterpolation(m_box, a_cstrs, b_cstrs);
     }
     if (complete) {
@@ -464,7 +454,7 @@ bool nra_solver::check(bool complete) {
         // Complete Check ==> Run ICP
         if (config.nra_ncbt) {
             m_box = ncbt_icp::solve(m_box, m_ctc, config);
-        } else if (config.nra_parallel) {
+        } else if (config.icp_parallel) {
             m_box = parallel_icp::solve(m_box, m_ctc, config);
         } else {
             m_box = naive_icp::solve(m_box, m_ctc, config);
@@ -480,7 +470,7 @@ bool nra_solver::check(bool complete) {
     }
     bool result = !m_box.is_empty();
     DREAL_LOG_INFO << "nra_solver::check: result = " << boolalpha << result;
-    for (constraint const * ctr : m_ctc.used_constraints()) {
+    for (shared_ptr<constraint> const ctr : m_ctc.used_constraints()) {
         m_used_constraint_vec.push_back(ctr);
     }
     if (!result) {
@@ -490,7 +480,7 @@ bool nra_solver::check(bool complete) {
             std::cout << "interpolant" << std::endl;
             itp->print(std::cout);
             std::cout << std::endl;
-            interpolator->print_stats();
+            //interpolator->print_stats();
             if (config.nra_use_stat) {
               config.nra_stat.add_proof_size(interpolator->get_proof_size());
               config.nra_stat.add_itp_size(interpolator->get_interpolant_size());
@@ -504,13 +494,17 @@ bool nra_solver::check(bool complete) {
             handle_sat_case(m_box);
         }
     }
+    if (config.nra_interpolant) {
+        delete interpolator;
+        interpolator = NULL;
+    }
     DREAL_LOG_DEBUG << "nra_solver::check(" << (complete ? "complete" : "incomplete") << ") = " << result;
     return result;
 }
 
-vector<Enode *> nra_solver::generate_explanation(scoped_vec<constraint const *> const & ctr_vec) {
+vector<Enode *> nra_solver::generate_explanation(scoped_vec<shared_ptr<constraint>> const & ctr_vec) {
     unordered_set<Enode *> bag;
-    for (constraint const * ctr : ctr_vec) {
+    for (shared_ptr<constraint> ctr : ctr_vec) {
         vector<Enode *> const & enodes_in_ctr = ctr->get_enodes();
         for (Enode * const e : enodes_in_ctr) {
             if (e->hasPolarity()) {
@@ -518,8 +512,7 @@ vector<Enode *> nra_solver::generate_explanation(scoped_vec<constraint const *> 
             }
         }
     }
-    vector<Enode *> exps;
-    copy(bag.begin(), bag.end(), back_inserter(exps));
+    vector<Enode *> exps(bag.begin(), bag.end());
     sort(exps.begin(), exps.end(), [](Enode const * const e1, Enode const * const e2) {
             return e1->getId() < e2->getId();
         });
@@ -537,5 +530,10 @@ bool nra_solver::belongsToT(Enode * e) {
 // Copy the model into enode's data
 void nra_solver::computeModel() {
     DREAL_LOG_DEBUG << "nra_solver::computeModel" << endl;
+    // --model option
+    if (config.nra_model && config.nra_multiple_soln == 1) {
+        // Only output here when --multiple_soln is not used
+        output_solution(m_box, config);
+    }
 }
 }  // namespace dreal

@@ -107,7 +107,7 @@ public:
   void          DeclareSort          ( const char *, int );          // Declares a new sort
   void          DeclareFun           ( const char *, Snode * );      // Declares a new function symbol
   void          DeclareFun           ( const char *, Snode * , const char * p);  // Declares a new function symbol
-  void          DefineODE            ( char const *, std::vector<std::pair<std::string, Enode *>> const & odes );      // Define an ODE
+  void          DefineODE            ( char const *, std::vector<std::pair<Enode *, Enode *>> const & odes );      // Define an ODE
 
   void          Push                 ( );
   void          Pop                  ( );
@@ -133,8 +133,6 @@ public:
   // For script: add a command to the queue
   //
   void          addAssert            ( Enode * );               // Command for (assert ...)
-  void          addIntvCtr           ( const char* const, Enode * const, const char *, const char *);
-  void          addIntvCtrR          ( const char* const, const char *, Enode * const, const char *);
   void          addCheckSAT          ( );                       // Command for (check-sat)
   void          addPush              ( int );                   // Command for (push ...)
   void          addPop               ( int );                   // Command for (pop ...)

@@ -8,7 +8,10 @@
 
 namespace dreal {
 
-tuple<unordered_set<constraint const *>, unordered_set<constraint const *>> splitAB(const std::vector<constraint const *> & cstrs);
+std::tuple<std::unordered_set<std::shared_ptr<constraint>>, std::unordered_set<std::shared_ptr<constraint>>>
+    splitAB(const std::vector<std::shared_ptr<constraint>> & cstrs);
+
+bool is_bound(std::shared_ptr<constraint> & cstr);
 
 }
 

@@ -38,7 +38,7 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include <vector>
 
 #include "nlopt.hpp"
-#include "contractor/contractor.h"
+#include "contractor/contractor_generic_forall.h"
 #include "ibex/ibex.h"
 #include "icp/icp.h"
 #include "opensmt/egraph/Enode.h"
@@ -49,6 +49,7 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include "util/proof.h"
 #include "util/eval.h"
 #include "interpolation/tilingInterpolation.h"
+#include "util/strategy.h"
 
 using std::back_inserter;
 using std::boolalpha;
@@ -59,6 +60,7 @@ using std::function;
 using std::get;
 using std::initializer_list;
 using std::make_shared;
+using std::move;
 using std::numeric_limits;
 using std::ostream;
 using std::ostringstream;
@@ -66,13 +68,13 @@ using std::pair;
 using std::queue;
 using std::runtime_error;
 using std::set;
+using std::shared_ptr;
 using std::string;
 using std::tuple;
+using std::unique_ptr;
 using std::unordered_map;
 using std::unordered_set;
 using std::vector;
-using std::unique_ptr;
-using std::move;
 
 namespace dreal {
 
@@ -85,7 +87,7 @@ static unordered_map<Enode*, ibex::Interval> make_subst_from_value(box const & b
     return subst;
 }
 
-contractor_generic_forall::contractor_generic_forall(box const & , generic_forall_constraint const * const ctr)
+contractor_generic_forall::contractor_generic_forall(box const & , shared_ptr<generic_forall_constraint> const ctr)
     : contractor_cell(contractor_kind::FORALL), m_ctr(ctr) {
 }
 
@@ -105,29 +107,6 @@ void contractor_generic_forall::handle(fbbox & b, Enode * body, bool const p,  S
         handle_atomic(b, body, p, config);
         return;
     }
-}
-
-static bool term_cond(dreal::box const & old_box, dreal::box const & new_box) {
-    double const threshold = 0.01;
-    // If there is a dimension which is improved more than
-    // threshold, we stop the current fixed-point computation.
-    for (unsigned i = 0; i < old_box.size(); i++) {
-        double const new_box_i = new_box[i].diam();
-        double const old_box_i = old_box[i].diam();
-        if (new_box_i == numeric_limits<double>::infinity()) {
-            continue;
-        }
-        if (old_box_i == 0) {
-            // The i-th dimension was already a point, nothing to improve.
-            continue;
-        }
-        double const improvement = 1 - new_box_i / old_box_i;
-        assert(!std::isnan(improvement));
-        if (improvement >= threshold) {
-            return false;
-        }
-    }
-    return true;
 }
 
 vector<Enode *> contractor_generic_forall::elist_to_vector(Enode * e) const {
@@ -338,30 +317,31 @@ box refine_CE_with_nlopt(box const & b, vector<Enode*> const & vec) {
     }
 }
 
-contractor make_contractor(Enode * e, lbool const polarity, box const & b, vector<unique_ptr<nonlinear_constraint>> & ctrs) {
+contractor make_contractor(Enode * e,
+                           lbool const
+                           polarity,
+                           box const & b,
+                           unordered_set<Enode *> const & var_set) {
     if (e->isNot()) {
-        return make_contractor(e->get1st(), !polarity, b, ctrs);
+        return make_contractor(e->get1st(), !polarity, b, var_set);
     }
     if (e->isOr()) {
         // TODO(soonhok): arbitrary number of args
         assert(e->getArity() == 2);
-        contractor c1 = make_contractor(e->get1st(), polarity, b, ctrs);
-        contractor c2 = make_contractor(e->get2nd(), polarity, b, ctrs);
+        contractor c1 = make_contractor(e->get1st(), polarity, b, var_set);
+        contractor c2 = make_contractor(e->get2nd(), polarity, b, var_set);
         return mk_contractor_join(c1, c2);
     }
     if (e->isAnd()) {
         vector<contractor> ctcs;
         e = e->getCdr();
         while (!e->isEnil()) {
-            ctcs.push_back(make_contractor(e->getCar(), polarity, b, ctrs));
+            ctcs.push_back(make_contractor(e->getCar(), polarity, b, var_set));
             e = e->getCdr();
         }
         return mk_contractor_seq(ctcs);
     } else {
-        unique_ptr<nonlinear_constraint> ctr(new nonlinear_constraint(e, polarity));
-        auto ctc = mk_contractor_ibex_fwdbwd(b, ctr.get());
-        ctrs.push_back(move(ctr));
-        return ctc;
+        return mk_contractor_ibex_fwdbwd(make_shared<nonlinear_constraint>(e, var_set, polarity));
     }
 }
 
@@ -382,7 +362,9 @@ box find_CE_via_underapprox(box const & b, unordered_set<Enode*> const & forall_
     if (config.nra_shrink_for_dop) {
         counterexample = shrink_for_dop(counterexample);
     }
-    bool return_empty = false;
+    auto vars = counterexample.get_vars();
+    unordered_set<Enode*> const var_set(vars.begin(), vars.end());
+    ibex::IntervalVector & iv = counterexample.get_values();
     for (Enode * e : vec) {
         lbool polarity = p ? l_False : l_True;
         if (e->isNot()) {
@@ -390,22 +372,14 @@ box find_CE_via_underapprox(box const & b, unordered_set<Enode*> const & forall_
             polarity = !polarity;
         }
         if (e->isOr() || e->isAnd()) {
-            return_empty = true;
             break;
         }
-        nonlinear_constraint ctr(e, polarity);
+        nonlinear_constraint ctr(e, var_set, polarity);
         if (ctr.is_neq()) {
-            return_empty = false;
             break;
         }
         auto numctr = ctr.get_numctr();
-
         // Construct iv from box b
-        auto & var_array = ctr.get_var_array();
-        ibex::IntervalVector iv(var_array.size());
-        for (int i = 0; i < var_array.size(); i++) {
-            iv[i] = counterexample[var_array[i].name];
-        }
         if (numctr->op == ibex::CmpOp::GT || numctr->op == ibex::CmpOp::GEQ) {
             numctr->f.ibwd(ibex::Interval(0.0, POS_INFINITY), iv);
         } else if (numctr->op == ibex::CmpOp::LT || numctr->op == ibex::CmpOp::LEQ) {
@@ -413,44 +387,36 @@ box find_CE_via_underapprox(box const & b, unordered_set<Enode*> const & forall_
         } else if (numctr->op == ibex::CmpOp::EQ) {
             numctr->f.ibwd(ibex::Interval(0.0, 0.0), iv);
         } else {
-            throw runtime_error("??");
-        }
-        if (iv.is_empty()) {
-            return_empty = true;
-        } else {
-            // Reconstruct box b from pruned result iv.
-            for (int i = 0; i < var_array.size(); i++) {
-                counterexample[var_array[i].name] = iv[i].mid();
-            }
+            ostringstream ss;
+            ss << "find_CE_via_underapprox: unknown constraint type, " << *numctr;
+            throw runtime_error(ss.str());
         }
     }
-    if (return_empty) {
-        counterexample.set_empty();
+    if (!iv.is_empty()) {
+        iv = iv.mid();
     }
     return counterexample;
 }
 
 box find_CE_via_overapprox(box const & b, unordered_set<Enode*> const & forall_vars, vector<Enode*> const & vec, bool const p, SMTConfig & config) {
-    vector<unique_ptr<nonlinear_constraint>> ctrs;
     vector<contractor> ctcs;
     box counterexample(b, forall_vars);
     if (config.nra_shrink_for_dop) {
         counterexample = shrink_for_dop(counterexample);
     }
+    auto vars = counterexample.get_vars();
+    unordered_set<Enode *> var_set(vars.begin(), vars.end());
     for (Enode * e : vec) {
         lbool polarity = p ? l_False : l_True;
         if (e->isNot()) {
             polarity = !polarity;
             e = e->get1st();
         }
-        contractor ctc = make_contractor(e, polarity, counterexample, ctrs);
+        contractor ctc = make_contractor(e, polarity, counterexample, var_set);
         ctcs.push_back(ctc);
     }
-    contractor fp = mk_contractor_fixpoint(term_cond, ctcs);
-    // double const prec = std::max(b.max_diam() / 10.0, config.nra_precision);
-    double const prec = config.nra_precision;
-    // cerr << "find CE, prec = " << prec << endl;
-    counterexample = random_icp::solve(counterexample, fp, config, prec);
+    contractor fp = mk_contractor_fixpoint(default_strategy::term_cond, ctcs);
+    counterexample = random_icp::solve(counterexample, fp, config, config.nra_precision);
     return counterexample;
 }
 
@@ -461,12 +427,13 @@ box contractor_generic_forall::find_CE(box const & b, unordered_set<Enode*> cons
     if (!counterexample.is_empty()) {
         // ++under_approx;
         // cerr << "WE USE UNDERAPPROX: " << under_approx << "/" << over_approx<< "/" << (under_approx + over_approx) << endl;
+        // cerr << counterexample << endl;
     } else {
         counterexample = find_CE_via_overapprox(b, forall_vars, vec, p, config);
         // ++over_approx;
         // cerr << "WE USE FULL       : " << under_approx << "/" << over_approx << "/" << (under_approx + over_approx)
-        //      << " " << counterexample.is_empty()
-        //      << endl;
+        //      << " " << counterexample.is_empty() << endl
+        //      << counterexample << endl;
     }
     if (!counterexample.is_empty() && config.nra_local_opt) {
         return refine_CE_with_nlopt(counterexample, vec);
@@ -516,6 +483,8 @@ void contractor_generic_forall::handle_disjunction(fbbox & b, std::vector<Enode 
     vector<box> boxes;
     static box old_box(b.front());
     old_box = b.front();
+    auto vars = b.front().get_vars();
+    unordered_set<Enode*> const var_set(vars.begin(), vars.end());
     for (Enode * e : vec) {
         b.front() = old_box;
         if (!e->get_exist_vars().empty()) {
@@ -524,14 +493,14 @@ void contractor_generic_forall::handle_disjunction(fbbox & b, std::vector<Enode 
                 polarity = !polarity;
                 e = e->get1st();
             }
-            nonlinear_constraint ctr(e, polarity, subst);
-            if (ctr.get_var_array().size() == 0) {
-                auto result = ctr.eval(b.front());
+            auto ctr = make_shared<nonlinear_constraint>(e, var_set, polarity, subst);
+            if (ctr->get_var_array().size() == 0) {
+                auto result = ctr->eval(b.front());
                 if (result.first != false) {
                     boxes.emplace_back(b.front());
                 }
             } else {
-                contractor ctc = mk_contractor_ibex_fwdbwd(b.front(), &ctr);
+                contractor ctc = mk_contractor_ibex_fwdbwd(ctr);
                 ctc.prune(b, config);
                 boxes.emplace_back(b.front());
             }
@@ -570,7 +539,7 @@ ostream & contractor_generic_forall::display(ostream & out) const {
     return out;
 }
 
-contractor mk_contractor_generic_forall(box const & b, generic_forall_constraint const * const ctr) {
+contractor mk_contractor_generic_forall(box const & b, shared_ptr<generic_forall_constraint> const ctr) {
     return contractor(make_shared<contractor_generic_forall>(b, ctr));
 }
 

@@ -31,13 +31,13 @@ namespace dreal {
 using std::endl;
 using std::string;
 
-void output_start(ostream & out, box const & domain, bool const readable_proof) {
+void output_start(std::ostream & out, box const & domain, bool const readable_proof) {
     out << "[domain]" << endl;
     dreal::display(out, domain, !readable_proof);
     out.put(out.widen('\n')); //avoid flushing
 }
 
-void output_pruning_step(ostream & out, box const & old_box, box const & new_box, bool const readable_proof, string const & constraint) {
+void output_pruning_step(std::ostream & out, box const & old_box, box const & new_box, bool const readable_proof, string const & constraint) {
     if (old_box != new_box) {
         bool empty = new_box.is_empty();
         if (empty) {
@@ -79,8 +79,8 @@ void output_split_step(std::ostream & out, box const & old_box,
                        box const & first_box, box const & second_box,
                        bool const readable_proof, int variable) {
   auto const p = find_split(first_box, second_box, variable);
-  double split = get<0>(p);
-  bool gt = get<1>(p);
+  double split = std::get<0>(p);
+  bool gt = std::get<1>(p);
   //printing
   out << "[branching] on (";
   if (gt) {

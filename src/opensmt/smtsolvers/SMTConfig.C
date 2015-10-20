@@ -17,8 +17,11 @@ You should have received a copy of the GNU General Public License
 along with OpenSMT. If not, see <http://www.gnu.org/licenses/>.
 *********************************************************************/
 
+#include <limits>
 #include <sstream>
 #include <string>
+#include <exception>
+#include <vector>
 #include <ezOptionParser/ezOptionParser.hpp>
 #include "SMTConfig.h"
 #include "config.h"
@@ -30,12 +33,16 @@ along with OpenSMT. If not, see <http://www.gnu.org/licenses/>.
 INITIALIZE_EASYLOGGINGPP
 #endif
 
-using std::string;
-using std::endl;
 using std::cerr;
 using std::cout;
+using std::endl;
+using std::numeric_limits;
 using std::ofstream;
 using std::ostream;
+using std::ostringstream;
+using std::string;
+using std::vector;
+using std::logic_error;
 
 void
 SMTConfig::initializeConfig( )
@@ -112,8 +119,12 @@ SMTConfig::initializeConfig( )
   nra_ODE_grid_size            = 16;
   nra_ODE_step                 = 0.0;
   nra_ODE_contain              = false;
-  nra_ODE_timeout              = 0.0;
+  nra_ODE_fwd_timeout          = 0.0;
+  nra_ODE_bwd_timeout          = 0.0;
+  nra_ODE_show_progress        = false;
+  nra_ODE_sampling             = false;
   nra_json                     = false;
+  nra_parallel                 = false;
   nra_delta_test               = false;
   nra_use_delta_heuristic      = false;
   nra_short_sat                = false;
@@ -127,7 +138,7 @@ SMTConfig::initializeConfig( )
   nra_ncbt                     = false;
   nra_local_opt                = false;
   nra_worklist_fp              = false;
-  nra_parallel                 = false;
+  icp_parallel                 = false;
   nra_shrink_for_dop           = false;
   nra_interpolant             = false;
   initLogging();
@@ -352,7 +363,7 @@ void SMTConfig::printConfig ( ostream & out )
 void printUsage(ez::ezOptionParser & opt) {
     string usage;
     opt.getUsage(usage, 160);
-    std::cout << usage;
+    cout << usage;
     exit(1);
 }
 
@@ -394,8 +405,14 @@ SMTConfig::parseCMDLine( int argc
             "specify the number of grids that we use in ODE solving (default: 16)",
             "--ode-grid", "--ode_grid");
     opt.add("", false, 1, 0,
-            "specify the timeout (msec) to be used in single ODE solving step (default: +oo)",
-            "--ode-timeout", "--ode_timeout");
+            "specify the timeout (msec) for ODE pruning steps (both for forward and backward) (default: +oo)",
+            "--ode-timeout");
+    opt.add("", false, 1, 0,
+            "specify the timeout (msec) for a forward ODE pruning step (default: +oo)",
+            "--ode-forward-timeout", "--ode-fwd-timeout");
+    opt.add("", false, 1, 0,
+            "specify the timeout (msec) for a backward ODE pruning step (default: +oo)",
+            "--ode-backward-timeout", "--ode-bwd-timeout");
     opt.add("", false, 0, 0,
             "enable reusing ODE computation by caching them",
             "--ode-cache", "--ode_cache");
@@ -405,6 +422,12 @@ SMTConfig::parseCMDLine( int argc
     opt.add("", false, 0, 0,
             "specify to solve ODEs in parallel",
             "--ode-parallel", "--ode_parallel");
+    opt.add("", false, 0, 0,
+            "show the progress of ODE computation",
+            "--ode-show-progress", "--ode_show_progress");
+    opt.add("", false, 0, 0,
+            "use sampling method for ODE (using GNU GSL)",
+            "--ode-sampling", "--ode_sampling");
     opt.add("", false, 0, 0,
             "produce an addition file \"filename.proof\" which contains a proof for UNSAT",
             "--proof");
@@ -420,6 +443,9 @@ SMTConfig::parseCMDLine( int argc
     opt.add("", false, 0, 0,
             "output visualization file (.json)",
             "--visualize", "--vis");
+    opt.add("", false, 0, 0,
+            "enable parallelization",
+            "--parallel");
 #ifdef LOGGING
     opt.add("", false, 0, 0,
             "output debugging messages",
@@ -478,7 +504,7 @@ SMTConfig::parseCMDLine( int argc
 
     if (opt.isSet("--version")) {
         // Usage Information
-        std::cout << opt.overview << endl;
+        cout << opt.overview << endl;
         exit(0);
     }
 
@@ -497,12 +523,15 @@ SMTConfig::parseCMDLine( int argc
     nra_ODE_cache           = opt.isSet("--ode-cache");
     nra_ODE_forward_only    = opt.isSet("--ode-forward-only");
     nra_ODE_parallel        = opt.isSet("--ode-parallel");
+    nra_ODE_show_progress   = opt.isSet("--ode-show-progress");
+    nra_ODE_sampling        = opt.isSet("--ode-sampling");
     nra_readable_proof      = opt.isSet("--readable-proof");
     sat_theory_propagation  = opt.isSet("--theory-propagation");
     nra_proof               = nra_readable_proof || opt.isSet("--proof");
     nra_model               = opt.isSet("--model");
     if (nra_model) { produce_models = true; }
     nra_json                = opt.isSet("--visualize");
+    nra_parallel            = opt.isSet("--parallel");
 #ifdef LOGGING
     nra_verbose             = opt.isSet("--verbose") || opt.isSet("--debug");
     nra_debug               = opt.isSet("--debug");
@@ -513,13 +542,52 @@ SMTConfig::parseCMDLine( int argc
     nra_ncbt                = opt.isSet("--ncbt");
     nra_local_opt           = opt.isSet("--local-opt");
     nra_worklist_fp         = opt.isSet("--worklist-fp");
-    nra_parallel            = opt.isSet("--parallel");
+    icp_parallel            = opt.isSet("--icp-parallel");
     nra_shrink_for_dop      = opt.isSet("--shrink-for-opt");
     nra_interpolant         = opt.isSet("--interpolant");
 
     // Extract Double Args
     if (opt.isSet("--precision")) { opt.get("--precision")->getDouble(nra_precision); }
     if (opt.isSet("--ode-step")) { opt.get("--ode-step")->getDouble(nra_ODE_step); }
+    if (opt.isSet("--ode-fwd-timeout")) {
+        try {
+            double ode_fwd_timeout = 0.0;
+            opt.get("--ode-fwd-timeout")->getDouble(ode_fwd_timeout);
+            setODEFwdTimeout(ode_fwd_timeout);
+        } catch (logic_error & e) {
+            cerr << e.what() << endl;
+            printUsage(opt);
+        }
+    }
+    if (opt.isSet("--ode-bwd-timeout")) {
+        try {
+            double ode_bwd_timeout = 0.0;
+            opt.get("--ode-bwd-timeout")->getDouble(ode_bwd_timeout);
+            setODEBwdTimeout(ode_bwd_timeout);
+        } catch (logic_error & e) {
+            cerr << e.what() << endl;
+            printUsage(opt);
+        }
+    }
+    if (opt.isSet("--ode-timeout") && opt.isSet("--ode-fwd-timeout")) {
+        cerr << "ERROR: --ode-timeout option cannot be used with --ode-forward-timeout option." << endl;
+        printUsage(opt);
+    }
+    if (opt.isSet("--ode-timeout") && opt.isSet("--ode-bwd-timeout")) {
+        cerr << "ERROR: --ode-timeout option cannot be used with --ode-backward-timeout option." << endl;
+        printUsage(opt);
+    }
+    if (opt.isSet("--ode-timeout")) {
+        try {
+            double ode_timeout = 0.0;
+            opt.get("--ode-timeout")->getDouble(ode_timeout);
+            setODEFwdTimeout(ode_timeout);
+            setODEBwdTimeout(ode_timeout);
+        } catch (logic_error & e) {
+            cerr << e.what() << endl;
+            printUsage(opt);
+        }
+    }
 
     // Extract String Args
     if (opt.isSet("--bmc-heuristic")) { opt.get("--bmc-heuristic")->getString(nra_bmc_heuristic); }
@@ -527,31 +595,30 @@ SMTConfig::parseCMDLine( int argc
     // Extract ULong Args
     if (opt.isSet("--ode-order")) { opt.get("--ode-order")->getULong(nra_ODE_taylor_order); }
     if (opt.isSet("--ode-grid")) { opt.get("--ode-grid")->getULong(nra_ODE_grid_size); }
-    if (opt.isSet("--ode-timeout")) { opt.get("--ode-timeout")->getULong(nra_ODE_timeout); }
     if (opt.isSet("--aggressive")) { opt.get("--aggressive")->getULong(nra_aggressive); }
     if (opt.isSet("--sample")) { opt.get("--sample")->getULong(nra_sample); }
     if (opt.isSet("--multiple")) { opt.get("--multiple-soln")->getULong(nra_multiple_soln); }
 
-    std::vector<std::string> badOptions;
+    vector<string> badOptions;
     if(!opt.gotRequired(badOptions)) {
         for (size_t i = 0; i < badOptions.size(); ++i)
-            std::cerr << "ERROR: Missing required option " << badOptions[i] << ".\n\n";
+            cerr << "ERROR: Missing required option " << badOptions[i] << ".\n\n";
         printUsage(opt);
     }
 
     if(!opt.gotExpected(badOptions)) {
         for (size_t i = 0; i < badOptions.size(); ++i)
-            std::cerr << "ERROR: Got unexpected number of arguments for option " << badOptions[i] << ".\n\n";
+            cerr << "ERROR: Got unexpected number of arguments for option " << badOptions[i] << ".\n\n";
         printUsage(opt);
     }
 
     // Set up filename
     filename = "";
     bool stdin_is_on = opt.isSet("--in");
-    std::vector<std::string*> args;
-    copy(opt.firstArgs.begin() + 1, opt.firstArgs.end(),   back_inserter(args));
-    copy(opt.unknownArgs.begin(),   opt.unknownArgs.end(), back_inserter(args));
-    copy(opt.lastArgs.begin(),      opt.lastArgs.end(),    back_inserter(args));
+    vector<string*> args;
+    args.insert(args.end(), opt.firstArgs.begin() + 1, opt.firstArgs.end());
+    args.insert(args.end(), opt.unknownArgs.begin(),   opt.unknownArgs.end());
+    args.insert(args.end(), opt.lastArgs.begin(),      opt.lastArgs.end());
 
     if (stdin_is_on && args.size() > 0) {
         printUsage(opt);
@@ -584,7 +651,7 @@ SMTConfig::parseCMDLine( int argc
     if (nra_proof) {
         /* Open file stream */
         nra_proof_out_name = filename + ".proof";
-        nra_proof_out.open (nra_proof_out_name.c_str(), std::ofstream::out | std::ofstream::trunc);
+        nra_proof_out.open (nra_proof_out_name.c_str(), ofstream::out | ofstream::trunc);
         if(nra_proof_out.fail()) {
             cout << "Cannot create a file: " << nra_proof_out_name << endl;
             exit( 1 );
@@ -600,7 +667,7 @@ SMTConfig::parseCMDLine( int argc
     if (nra_json) {
         nra_json_out_name = filename + ".json";
         /* Open file stream */
-        nra_json_out.open (nra_json_out_name.c_str(), std::ofstream::out | std::ofstream::trunc );
+        nra_json_out.open (nra_json_out_name.c_str(), ofstream::out | ofstream::trunc );
         if(nra_json_out.fail()) {
             cout << "Cannot create a file: " << filename << endl;
             exit( 1 );
@@ -644,4 +711,24 @@ void SMTConfig::setVerbosityInfoLevel() {
 
 void SMTConfig::setVerbosityErrorLevel() {
     el::Loggers::setVerboseLevel(DREAL_ERROR_LEVEL);
+}
+
+void SMTConfig::setODEFwdTimeout(double const ode_fwd_timeout) {
+    if (ode_fwd_timeout <= 0.0) {
+        ostringstream os;
+        os << "ERROR: argument for --ode-forward-timeout option should be positive number. "
+           << "It gets " << ode_fwd_timeout << ".";
+        throw logic_error(os.str());
+    }
+    nra_ODE_fwd_timeout = ode_fwd_timeout;
+}
+
+void SMTConfig::setODEBwdTimeout(double const ode_bwd_timeout) {
+    if (ode_bwd_timeout <= 0.0) {
+        ostringstream os;
+        os << "ERROR: argument for --ode-backward-timeout option should be positive number. "
+           << "It gets " << ode_bwd_timeout << ".";
+        throw logic_error(os.str());
+    }
+    nra_ODE_bwd_timeout = ode_bwd_timeout;
 }

@@ -1,7 +1,5 @@
 /*********************************************************************
 Author: Soonho Kong <soonhok@cs.cmu.edu>
-        Sicun Gao <sicung@cs.cmu.edu>
-        Edmund Clarke <emc@cs.cmu.edu>
 
 dReal -- Copyright (C) 2013 - 2015, Soonho Kong, Sicun Gao, and Edmund Clarke
 
@@ -28,11 +26,12 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include <queue>
 #include <sstream>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
-#include "contractor/contractor.h"
+#include "contractor/contractor_ibex.h"
 #include "ibex/ibex.h"
 #include "opensmt/egraph/Enode.h"
 #include "util/box.h"
@@ -43,23 +42,28 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include "interpolation/tilingInterpolation.h"
 
 using std::back_inserter;
+using std::cerr;
 using std::endl;
 using std::function;
 using std::initializer_list;
+using std::make_pair;
 using std::make_shared;
 using std::map;
 using std::move;
 using std::ostream;
 using std::ostringstream;
+using std::pair;
 using std::queue;
+using std::shared_ptr;
 using std::string;
+using std::tuple;
 using std::unique_ptr;
 using std::unordered_map;
 using std::unordered_set;
 using std::vector;
 
 namespace dreal {
-ibex::SystemFactory* contractor_ibex_polytope::build_system_factory(vector<Enode *> const & vars, vector<nonlinear_constraint const *> const & ctrs) {
+ibex::SystemFactory* contractor_ibex_polytope::build_system_factory(vector<Enode *> const & vars, vector<shared_ptr<nonlinear_constraint>> const & ctrs) {
     DREAL_LOG_DEBUG << "build_system_factory:";
     ibex::SystemFactory * sf = new ibex::SystemFactory();
     map<string, ibex::Variable const> var_map;  // Needed for translateEnodeToExprCtr
@@ -85,7 +89,10 @@ ibex::SystemFactory* contractor_ibex_polytope::build_system_factory(vector<Enode
     DREAL_LOG_DEBUG << "build_system_factory: Add Variable: DONE";
 
     // Construct System: add constraints
-    for (nonlinear_constraint const * ctr : ctrs) {
+    for (shared_ptr<nonlinear_constraint> const ctr : ctrs) {
+        if (ctr->is_neq()) {
+            continue;
+        }
         DREAL_LOG_INFO << "build_system_factory: Add Constraint: " << *ctr;
         Enode * e = ctr->get_enode();
         auto p = e->getPolarity();
@@ -143,18 +150,13 @@ ibex::Array<ibex::ExprSymbol const> build_array_of_vars_from_enodes(unordered_se
     return ret;
 }
 
-contractor_ibex_fwdbwd::contractor_ibex_fwdbwd(box const & box, nonlinear_constraint const * const ctr)
-    : contractor_cell(contractor_kind::IBEX_FWDBWD, box.size()), m_ctr(ctr),
+contractor_ibex_fwdbwd::contractor_ibex_fwdbwd(shared_ptr<nonlinear_constraint> const ctr)
+    : contractor_cell(contractor_kind::IBEX_FWDBWD, ctr->get_var_array().size()), m_ctr(ctr),
       m_numctr(ctr->get_numctr()), m_var_array(ctr->get_var_array()) {
     if (!ctr->is_neq()) {
         m_ctc.reset(new ibex::CtcFwdBwd(*m_numctr));
         // Set up input
-        ibex::BitSet const * const input = m_ctc->input;
-        for (unsigned i = 0; i <  input->size(); i++) {
-            if ((*input)[i]) {
-                m_input.add(box.get_index(m_var_array[i].name));
-            }
-        }
+        m_input = *(m_ctc->input);
         m_used_constraints.insert(m_ctr);
     }
 }
@@ -168,8 +170,6 @@ void contractor_ibex_fwdbwd::prune(fbbox & b, SMTConfig & config) const {
         b.back() = b.front();
     }
 
-    DREAL_LOG_DEBUG << "==================================================";
-
     if (m_var_array.size() == 0) {
         auto eval_result = m_ctr->eval(b.front());
         if (eval_result.first == l_False) {
@@ -179,7 +179,6 @@ void contractor_ibex_fwdbwd::prune(fbbox & b, SMTConfig & config) const {
                 ostringstream ss;
                 Enode const * const e = m_ctr->get_enode();
                 ss << (e->getPolarity() == l_False ? "!" : "") << e;
-                output_pruning_step(config.nra_proof_out, b.back(), b.front(), config.nra_readable_proof, ss.str());
             }
             if (config.nra_interpolant) {
                 interpolator->pruning(b.back(), b.front(), m_ctr);
@@ -189,57 +188,93 @@ void contractor_ibex_fwdbwd::prune(fbbox & b, SMTConfig & config) const {
             return;
         }
     }
-
-    if (m_ctr->is_aligned() && m_var_array.size() - b.front().size() == 0) {
-        // This nonlinear_constraint is built aligned so that we can
-        // directly pass its IntervalVector
-        m_ctc->contract(b.front().get_values());
-        m_output = *(m_ctc->output);
-        // ======= Proof =======
-        if (config.nra_proof) {
-            ostringstream ss;
-            Enode const * const e = m_ctr->get_enode();
-            ss << (e->getPolarity() == l_False ? "!" : "") << e;
-            output_pruning_step(config.nra_proof_out, b.back(), b.front(), config.nra_readable_proof, ss.str());
-        }
-        if (config.nra_interpolant) {
-            interpolator->pruning(b.back(), b.front(), m_ctr);
-        }
-        return;
-    }
-
-    // Construct iv from box b
-    ibex::IntervalVector iv(m_var_array.size());
-    for (int i = 0; i < m_var_array.size(); i++) {
-        iv[i] = b.front()[m_var_array[i].name];
-        DREAL_LOG_DEBUG << m_var_array[i].name << " = " << iv[i];
-    }
-
-    // Prune on iv
+    assert(m_var_array.size() - b.front().size() == 0);
     DREAL_LOG_DEBUG << "Before pruning using ibex_fwdbwd(" << *m_numctr << ")";
     DREAL_LOG_DEBUG << b.front();
-    DREAL_LOG_DEBUG << "ibex interval = " << iv << " (before)";
+    DREAL_LOG_DEBUG << "ibex interval = " << b.front().get_values() << " (before)";
     DREAL_LOG_DEBUG << "function = " << m_ctc->f;
     DREAL_LOG_DEBUG << "domain   = " << m_ctc->d;
-    m_ctc->contract(iv);
-    DREAL_LOG_DEBUG << "ibex interval = " << iv << " (after)";
-    if (iv.is_empty()) {
-        b.front().set_empty();
-    } else {
-        // Reconstruct box b from pruned result iv.
-        for (int i = 0; i < m_var_array.size(); i++) {
-            b.front()[m_var_array[i].name] = iv[i];
-        }
-    }
-    ibex::BitSet const * const output = m_ctc->output;
-    m_output.clear();
-    for (unsigned i = 0; i <  output->size(); i++) {
-        if ((*output)[i]) {
-            m_output.add(b.front().get_index(m_var_array[i].name));
-        }
-    }
-
+    m_ctc->contract(b.front().get_values());
+    DREAL_LOG_DEBUG << "ibex interval = " << b.front().get_values() << " (after)";
+    m_output = *(m_ctc->output);
     DREAL_LOG_DEBUG << "After pruning using ibex_fwdbwd(" << *m_numctr << ")";
+    DREAL_LOG_DEBUG << b.front();
+    if (config.nra_proof) {
+        // ======= Proof =======
+        ostringstream ss;
+        Enode const * const e = m_ctr->get_enode();
+        ss << (e->getPolarity() == l_False ? "!" : "") << e;
+        output_pruning_step(config.nra_proof_out, b.back(), b.front(), config.nra_readable_proof, ss.str());
+    }
+    if (config.nra_interpolant) {
+        interpolator->pruning(b.back(), b.front(), m_ctr);
+    }
+    return;
+}
+ostream & contractor_ibex_fwdbwd::display(ostream & out) const {
+    out << "contractor_ibex_fwdbwd(";
+    if (m_ctc != nullptr) {
+        out << *m_numctr;
+    }
+    out << ")";
+    return out;
+}
+
+contractor_ibex_newton::contractor_ibex_newton(box const & box, shared_ptr<nonlinear_constraint> const ctr)
+    : contractor_cell(contractor_kind::IBEX_NEWTON, box.size()), m_ctr(ctr),
+      m_numctr(ctr->get_numctr()), m_var_array(ctr->get_var_array()) {
+    if (!ctr->is_neq()) {
+        auto & f = m_numctr->f;
+        if (f.nb_var() != f.image_dim()) {
+            return;
+        }
+        m_ctc.reset(new ibex::CtcNewton(m_numctr->f));
+        // Set up input
+        ibex::BitSet const * const input = m_ctc->input;
+        for (unsigned i = 0; i <  input->size(); i++) {
+            if ((*input)[i]) {
+                m_input.add(box.get_index(m_var_array[i].name));
+            }
+        }
+        m_used_constraints.insert(m_ctr);
+    }
+}
+
+void contractor_ibex_newton::prune(fbbox & b, SMTConfig & config) const {
+    DREAL_LOG_DEBUG << "contractor_ibex_newton::prune";
+    if (m_ctc == nullptr) { return; }
+
+    // ======= Proof =======
+    if (config.nra_proof || config.nra_interpolant) {
+        b.back() = b.front();
+    }
+    if (m_var_array.size() == 0) {
+        auto eval_result = m_ctr->eval(b.front());
+        if (eval_result.first == l_False) {
+            b.front().set_empty();
+            // ======= Proof =======
+            if (config.nra_proof) {
+                ostringstream ss;
+                Enode const * const e = m_ctr->get_enode();
+                ss << (e->getPolarity() == l_False ? "!" : "") << e;
+            }
+            if (config.nra_interpolant) {
+                interpolator->pruning(b.back(), b.front(), m_ctr);
+            }
+            return;
+        } else {
+            return;
+        }
+    }
+    assert(m_var_array.size() - b.front().size() == 0);
+    DREAL_LOG_DEBUG << "Before pruning using ibex_newton(" << *m_numctr << ")";
+    DREAL_LOG_DEBUG << b.front();
+    DREAL_LOG_DEBUG << "ibex interval = " << b.front().get_values() << " (before)";
+    DREAL_LOG_DEBUG << "function = " << m_ctc->f;
+    m_ctc->contract(b.front().get_values());
+    DREAL_LOG_DEBUG << "ibex interval = " << b.front().get_values() << " (after)";
+    m_output = *(m_ctc->output);
+    DREAL_LOG_DEBUG << "After pruning using ibex_newton(" << *m_numctr << ")";
     DREAL_LOG_DEBUG << b.front();
 
     // ======= Proof =======
@@ -254,8 +289,8 @@ void contractor_ibex_fwdbwd::prune(fbbox & b, SMTConfig & config) const {
     }
 }
 
-ostream & contractor_ibex_fwdbwd::display(ostream & out) const {
-    out << "contractor_ibex_fwdbwd(";
+ostream & contractor_ibex_newton::display(ostream & out) const {
+    out << "contractor_ibex_newton(";
     if (m_ctc != nullptr) {
         out << *m_numctr;
     }
@@ -263,12 +298,78 @@ ostream & contractor_ibex_fwdbwd::display(ostream & out) const {
     return out;
 }
 
-contractor_ibex_polytope::contractor_ibex_polytope(double const prec, vector<Enode *> const & vars, vector<nonlinear_constraint const *> const & ctrs)
+contractor_ibex_hc4::contractor_ibex_hc4(vector<Enode *> const & vars, vector<shared_ptr<nonlinear_constraint>> const & ctrs)
+    : contractor_cell(contractor_kind::IBEX_HC4), m_ctrs(ctrs) {
+    // Trivial Case
+    if (m_ctrs.size() == 0) { return; }
+    unsigned index = 0;
+    ibex::Array<ibex::NumConstraint> cps(ctrs.size());
+    for (shared_ptr<nonlinear_constraint> numctr : ctrs) {
+        cps.set_ref(index++, *(numctr->get_numctr()));
+    }
+    m_ctc.reset(new ibex::CtcHC4(cps));
+    m_used_constraints.insert(m_ctrs.begin(), m_ctrs.end());
+    for (shared_ptr<nonlinear_constraint> ctr : ctrs) {
+        unordered_set<Enode*> const & vars_in_ctr = ctr->get_enode()->get_vars();
+        m_vars_in_ctrs.insert(vars_in_ctr.begin(), vars_in_ctr.end());
+    }
+    m_input = ibex::BitSet::empty(vars.size());
+    DREAL_LOG_INFO << "contractor_ibex_hc4: DONE" << endl;
+}
+
+void contractor_ibex_hc4::prune(fbbox & b, SMTConfig & config) const {
+    DREAL_LOG_DEBUG << "contractor_ibex_hc4::prune";
+    if (!m_ctc) { return; }
+    for (Enode * var : m_vars_in_ctrs) {
+        m_input.add(b.front().get_index(var));
+    }
+    
+    b.back() = b.front();
+    m_ctc->contract(b.front().get_values());
+    // setup output
+    vector<bool> diff_dims = b.front().diff_dims(b.back());
+    m_output = ibex::BitSet::empty(b.back().size());
+    for (unsigned i = 0; i < diff_dims.size(); i++) {
+        if (diff_dims[i]) {
+            m_output.add(i);
+        }
+    }
+    // ======= Proof =======
+    if (config.nra_proof) {
+        ostringstream ss;
+        for (auto const & ctr : m_ctrs) {
+            Enode const * const e = ctr->get_enode();
+            ss << (e->getPolarity() == l_False ? "!" : "") << e << ";";
+        }
+        output_pruning_step(config.nra_proof_out, b.back(), b.front(), config.nra_readable_proof, ss.str());
+    }
+    if (config.nra_interpolant) {
+        assert(false);
+        //TODO which one to pick???
+        //interpolator->pruning(b.front(), b.back(), ??? );
+    }
+    return;
+}
+ostream & contractor_ibex_hc4::display(ostream & out) const {
+    out << "contractor_ibex_hc4(";
+    for (unsigned i = 0; i < m_ctrs.size(); i++) {
+        out << *m_ctrs[i] << ", ";
+    }
+    out << ")";
+    return out;
+}
+
+contractor_ibex_polytope::contractor_ibex_polytope(double const prec, vector<Enode *> const & vars, vector<shared_ptr<nonlinear_constraint>> const & ctrs)
     : contractor_cell(contractor_kind::IBEX_POLYTOPE), m_ctrs(ctrs), m_prec(prec) {
     // Trivial Case
     if (m_ctrs.size() == 0) { return; }
     m_sf.reset(build_system_factory(vars, m_ctrs));
-    m_sys.reset(new ibex::System(*m_sf));
+    try {
+        m_sys.reset(new ibex::System(*m_sf));
+    } catch (ibex::EmptySystemException & e) {
+        DREAL_LOG_INFO << "contractor_ibex_polytope::contractor_ibex_polytope: empty ibex::system";
+        return;
+    }
 
     unsigned index = 0;
 
@@ -301,7 +402,7 @@ contractor_ibex_polytope::contractor_ibex_polytope(double const prec, vector<Eno
     m_used_constraints.insert(m_ctrs.begin(), m_ctrs.end());
     m_input  = ibex::BitSet::empty(vars.size());
 
-    for (nonlinear_constraint const * ctr : ctrs) {
+    for (shared_ptr<nonlinear_constraint> ctr : ctrs) {
         unordered_set<Enode*> const & vars_in_ctr = ctr->get_enode()->get_vars();
         m_vars_in_ctrs.insert(vars_in_ctr.begin(), vars_in_ctr.end());
     }
@@ -369,12 +470,25 @@ ostream & contractor_ibex_polytope::display(ostream & out) const {
     return out;
 }
 
-contractor mk_contractor_ibex_polytope(double const prec, vector<Enode *> const & vars, vector<nonlinear_constraint const *> const & ctrs) {
-    return contractor(make_shared<contractor_ibex_polytope>(prec, vars, ctrs));
+contractor mk_contractor_ibex_fwdbwd(shared_ptr<nonlinear_constraint> const ctr) {
+    static unordered_map<shared_ptr<nonlinear_constraint>, contractor> ibex_fwdbwd_ctc_cache;
+    auto const it = ibex_fwdbwd_ctc_cache.find(ctr);
+    if (it == ibex_fwdbwd_ctc_cache.end()) {
+        contractor ctc(make_shared<contractor_ibex_fwdbwd>(ctr));
+        ibex_fwdbwd_ctc_cache.emplace(ctr, ctc);
+        return ctc;
+    } else {
+        return it->second;
+    }
 }
 
-contractor mk_contractor_ibex_fwdbwd(box const & box, nonlinear_constraint const * const ctr) {
-    contractor ctc(make_shared<contractor_ibex_fwdbwd>(box, ctr));
-    return ctc;
+contractor mk_contractor_ibex_newton(box const & box, shared_ptr<nonlinear_constraint> const ctr) {
+    return contractor(make_shared<contractor_ibex_newton>(box, ctr));
+}
+contractor mk_contractor_ibex_hc4(vector<Enode *> const & vars, vector<shared_ptr<nonlinear_constraint>> const & ctrs) {
+    return contractor(make_shared<contractor_ibex_hc4>(vars, ctrs));
+}
+contractor mk_contractor_ibex_polytope(double const prec, vector<Enode *> const & vars, vector<shared_ptr<nonlinear_constraint>> const & ctrs) {
+    return contractor(make_shared<contractor_ibex_polytope>(prec, vars, ctrs));
 }
 }  // namespace dreal

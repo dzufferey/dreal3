@@ -1,7 +1,5 @@
 /*********************************************************************
 Author: Soonho Kong <soonhok@cs.cmu.edu>
-        Sicun Gao <sicung@cs.cmu.edu>
-        Edmund Clarke <emc@cs.cmu.edu>
 
 dReal -- Copyright (C) 2013 - 2015, Soonho Kong, Sicun Gao, and Edmund Clarke
 
@@ -35,61 +33,58 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include "contractor/contractor_basic.h"
 
 namespace dreal {
-class contractor_capd_fwd_simple : public contractor_cell {
+class contractor_capd_simple : public contractor_cell {
 private:
-    ode_constraint const * const m_ctr;
+    bool const m_forward;
+    std::shared_ptr<ode_constraint> const m_ctr;
 
 public:
-    contractor_capd_fwd_simple(box const & box, ode_constraint const * const ctr);
+    contractor_capd_simple(box const & box, std::shared_ptr<ode_constraint> const ctr, bool const forward);
     void prune(fbbox & b, SMTConfig & config) const;
     std::ostream & display(std::ostream & out) const;
 };
 
-class contractor_capd_fwd_full : public contractor_cell {
+class contractor_capd_full : public contractor_cell {
 private:
-    ode_constraint const * const m_ctr;
+    bool const m_forward;
+    std::shared_ptr<ode_constraint> const m_ctr;
     unsigned const m_taylor_order;
     unsigned const m_grid_size;
-
+    double const m_timeout;  // unit: msec
+    std::vector<Enode *> m_vars_0;
+    std::vector<Enode *> m_vars_t;
+    bool m_need_to_check_inv;
+    contractor m_inv_ctc;
     std::unique_ptr<capd::IMap> m_vectorField;
     std::unique_ptr<capd::IOdeSolver> m_solver;
     std::unique_ptr<capd::ITimeMap> m_timeMap;
+
+    std::string build_capd_string(integral_constraint const & ic, bool const forward = true) const;
     bool inner_loop(capd::IOdeSolver & solver, capd::interval const & prevTime, capd::interval const T, std::vector<std::pair<capd::interval, capd::IVector>> & enclosures) const;
+    bool check_invariant(capd::IVector & v, box b, SMTConfig & config) const;
+    template<typename Rect2Set>
+    bool check_invariant(Rect2Set & s, box const & b, SMTConfig & config) const {
+        thread_local static capd::IVector v;
+        v = s;
+        bool r = check_invariant(v, b, config);
+        s = Rect2Set(v);
+        return r;
+    }
+    bool compute_enclosures(capd::interval const & prevTime,
+                            capd::interval const T,
+                            box const & b,
+                            std::vector<std::pair<capd::interval, capd::IVector>> & enclosures,
+                            SMTConfig & config,
+                            bool const add_all = false) const;
+
 
 public:
-    contractor_capd_fwd_full(box const & box, ode_constraint const * const ctr, unsigned const taylor_order, unsigned const grid_size);
+    contractor_capd_full(box const & box, std::shared_ptr<ode_constraint> const ctr, bool const forward, unsigned const taylor_order, unsigned const grid_size, double const timeout = 0.0);
     void prune(fbbox & b, SMTConfig & config) const;
     nlohmann::json generate_trace(box b, SMTConfig & config) const;
     std::ostream & display(std::ostream & out) const;
 };
 
-class contractor_capd_bwd_simple : public contractor_cell {
-private:
-    ode_constraint const * const m_ctr;
-
-public:
-    contractor_capd_bwd_simple(box const & box, ode_constraint const * const ctr);
-    void prune(fbbox & b, SMTConfig & config) const;
-    std::ostream & display(std::ostream & out) const;
-};
-
-class contractor_capd_bwd_full : public contractor_cell {
-private:
-    ode_constraint const * const m_ctr;
-    unsigned const m_taylor_order;
-    unsigned const m_grid_size;
-
-    std::unique_ptr<capd::IMap> m_vectorField;
-    std::unique_ptr<capd::IOdeSolver> m_solver;
-    std::unique_ptr<capd::ITimeMap> m_timeMap;
-
-public:
-    contractor_capd_bwd_full(box const & box, ode_constraint const * const ctr, unsigned const taylor_order, unsigned const grid_size);
-    void prune(fbbox & b, SMTConfig & config) const;
-    std::ostream & display(std::ostream & out) const;
-};
-contractor mk_contractor_capd_fwd_simple(box const & box, ode_constraint const * const ctr, unsigned const taylor_order = 20, unsigned const grid_size = 16);
-contractor mk_contractor_capd_fwd_full(box const & box, ode_constraint const * const ctr, unsigned const taylor_order = 20, unsigned const grid_size = 16);
-contractor mk_contractor_capd_bwd_simple(box const & box, ode_constraint const * const ctr, unsigned const taylor_order = 20, unsigned const grid_size = 16);
-contractor mk_contractor_capd_bwd_full(box const & box, ode_constraint const * const ctr, unsigned const taylor_order = 20, unsigned const grid_size = 16);
+contractor mk_contractor_capd_simple(box const & box, std::shared_ptr<ode_constraint> const ctr, bool const forward);
+contractor mk_contractor_capd_full(box const & box, std::shared_ptr<ode_constraint> const ctr, bool const forward, unsigned const taylor_order = 20, unsigned const grid_size = 16, double const timeout = 0.0);
 }  // namespace dreal

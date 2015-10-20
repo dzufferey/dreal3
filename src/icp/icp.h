@@ -21,6 +21,7 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 
 #include <stack>
 #include <mutex>
+#include <tuple>
 #include <condition_variable>
 #include "util/box.h"
 #include "util/stat.h"
@@ -59,8 +60,8 @@ class parallel_icp {
     unsigned branches = 0;
     int working = 0;
     bool found_solution = false;
-    stack<box> solutions;
-    stack<tuple<unsigned,box>> box_stack;
+    std::stack<box> solutions;
+    std::stack<std::tuple<unsigned,box>> box_stack;
     
     void worker(int i, box const & b); //TODO i for debugging
 

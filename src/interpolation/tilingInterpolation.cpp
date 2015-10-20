@@ -3,6 +3,7 @@
 #include <iostream>
 #include "util/proof.h"
 #include "opensmt/api/OpenSMTContext.h"
+#include "util/logging.h"
 
 extern OpenSMTContext * parser_ctx;
 
@@ -11,8 +12,8 @@ namespace dreal {
 using std::tuple;
 
 tilingInterpolation::tilingInterpolation( box const & d,
-        std::unordered_set<constraint const *> const & a_cstrs,
-        std::unordered_set<constraint const *> const & b_cstrs):
+        std::unordered_set<std::shared_ptr<constraint>> const & a_cstrs,
+        std::unordered_set<std::shared_ptr<constraint>> const & b_cstrs):
     domain(d),
     a_variables(ibex::BitSet::empty(d.size())),
     b_variables(ibex::BitSet::empty(d.size())),
@@ -22,25 +23,28 @@ tilingInterpolation::tilingInterpolation( box const & d,
     partial_interpolants(),
     proof_size(0)
 {
-    for (constraint const * c: a_cstrs) {
+    for (auto c: a_cstrs) {
         for (Enode * v: c->get_vars()) {
             a_variables.add(d.get_index(v));
         }
     }
-    for (constraint const * c: b_cstrs) {
+    for (auto c: b_cstrs) {
         for (Enode * v: c->get_vars()) {
             b_variables.add(d.get_index(v));
         }
     }
 }
 
-void tilingInterpolation::pruning(box const & old_box, box const & new_box, constraint const * cstr) {
+void tilingInterpolation::pruning(box const & old_box, box const & new_box, std::shared_ptr<constraint> cstr) {
     Enode * it;
     if (is_a_constraint(cstr)) {
         it = make_false();
-    } else {
-        assert(is_b_constraint(cstr));
+    } else if (is_b_constraint(cstr)) {
         it = make_true();
+    } else {
+        assert(is_bound(cstr));
+        DREAL_LOG_DEBUG << "pruning, ignoring bound: " << cstr.get();
+        return;
     }
     if (new_box.is_empty()) {
         //if the new box is empty then we have a leaf
@@ -54,14 +58,14 @@ void tilingInterpolation::pruning(box const & old_box, box const & new_box, cons
             auto const snd_value = new_box.get_value(i);
             //pruning on the lower end
             if (fst_value.lb() < snd_value.lb()) {
-                tuple<bool,int,double,bool> pivot(false, i, snd_value.lb(), false);
+                std::tuple<bool,int,double,bool> pivot(false, i, snd_value.lb(), false);
                 split_stack.push(pivot);
                 push_partial_interpolant(it);
                 proof_size += 1;
             }
             //pruning on the upper end
             if (fst_value.ub() > snd_value.ub()) {
-                tuple<bool,int,double,bool> pivot(true, i, snd_value.ub(), false);
+                std::tuple<bool,int,double,bool> pivot(true, i, snd_value.ub(), false);
                 split_stack.push(pivot);
                 push_partial_interpolant(it);
                 proof_size += 1;
@@ -89,14 +93,14 @@ void tilingInterpolation::integer_pruning(box const & old_box, box const & new_b
         auto const snd_value = new_box.get_value(i);
         //pruning on the lower end
         if (fst_value.lb() < snd_value.lb()) {
-            tuple<bool,int,double,bool> pivot(false, i, snd_value.lb(), false);
+            std::tuple<bool,int,double,bool> pivot(false, i, snd_value.lb(), false);
             split_stack.push(pivot);
             push_partial_interpolant(it);
             proof_size += 1;
         }
         //pruning on the upper end
         if (fst_value.ub() > snd_value.ub()) {
-            tuple<bool,int,double,bool> pivot(true, i, snd_value.ub(), false);
+            std::tuple<bool,int,double,bool> pivot(true, i, snd_value.ub(), false);
             split_stack.push(pivot);
             push_partial_interpolant(it);
             proof_size += 1;
@@ -105,12 +109,14 @@ void tilingInterpolation::integer_pruning(box const & old_box, box const & new_b
 }
 
 void tilingInterpolation::split(box const & first_box, box const & second_box, int variable) {
-    tuple<double,bool> pivot = find_split(first_box, second_box, variable);
-    split_stack.push(make_tuple(get<1>(pivot),variable,get<0>(pivot),false));
+    std::tuple<double,bool> pivot = find_split(first_box, second_box, variable);
+    split_stack.push(std::make_tuple(std::get<1>(pivot),variable,std::get<0>(pivot),false));
     proof_size += 1;
 }
 
 Enode * tilingInterpolation::get_interpolant() {
+    //DREAL_LOG_DEBUG << "get_interpolant: splits " << split_stack.size() << ", partial " << partial_interpolants.size();
+    assert(split_stack.size() == 0);
     assert(partial_interpolants.size() == 1);
     return partial_interpolants.top();
 }
@@ -160,21 +166,22 @@ unsigned long int tilingInterpolation::get_interpolant_size() {
 }
 
 void tilingInterpolation::push_partial_interpolant(Enode * i) {
+    DREAL_LOG_DEBUG << "push_partial_interpolant: splits " << split_stack.size() << ", partial " << partial_interpolants.size();
     if (split_stack.empty()) {
         assert(partial_interpolants.empty());
         partial_interpolants.push(i);
     } else {
         std::tuple<bool,int,double,bool> top = split_stack.top();
         split_stack.pop();
-        if (get<3>(top) == true) {
+        if (std::get<3>(top) == true) {
             Enode * it2 = partial_interpolants.top();
             partial_interpolants.pop();
-            int variable = get<1>(top);
+            int variable = std::get<1>(top);
             if (is_shared_var(variable)) {
-                if (get<0>(top)) {
-                    i = make_ite(variable, get<2>(top), i, it2);
+                if (std::get<0>(top)) {
+                    i = make_ite(variable, std::get<2>(top), i, it2);
                 } else {
-                    i = make_ite(variable, get<2>(top), it2, i);
+                    i = make_ite(variable, std::get<2>(top), it2, i);
                 }
             } else if (is_a_var(variable)) {
                 i = make_or(i, it2);
@@ -185,7 +192,7 @@ void tilingInterpolation::push_partial_interpolant(Enode * i) {
             push_partial_interpolant(i);
         } else {
             partial_interpolants.push(i);
-            get<3>(top) = true;
+            std::get<3>(top) = true;
             split_stack.push(top);
         }
     }
@@ -203,11 +210,11 @@ bool tilingInterpolation::is_shared_var(int variable) {
     return is_a_var(variable) && is_b_var(variable);
 }
     
-bool tilingInterpolation::is_a_constraint(constraint const * c) {
+bool tilingInterpolation::is_a_constraint(std::shared_ptr<constraint> c) {
     return a_constraints.count(c) > 0;
 }
 
-bool tilingInterpolation::is_b_constraint(constraint const * c) {
+bool tilingInterpolation::is_b_constraint(std::shared_ptr<constraint> c) {
     return b_constraints.count(c) > 0;
 }
     

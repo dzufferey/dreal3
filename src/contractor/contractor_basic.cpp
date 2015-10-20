@@ -29,36 +29,41 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include <random>
 #include <set>
 #include <sstream>
+#include <stack>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
-#include <stack>
-#include <tuple>
-#include "contractor/contractor.h"
+#include "constraint/constraint.h"
+#include "contractor/contractor_basic.h"
 #include "ibex/ibex.h"
 #include "opensmt/egraph/Enode.h"
 #include "util/box.h"
-#include "constraint/constraint.h"
 #include "util/logging.h"
 #include "util/proof.h"
 #include "interpolation/tilingInterpolation.h"
+#include "util/interruptible_thread.h"
 
 using std::back_inserter;
+using std::cerr;
+using std::cout;
+using std::dynamic_pointer_cast;
+using std::endl;
 using std::function;
 using std::initializer_list;
+using std::make_pair;
 using std::make_shared;
+using std::ostream;
+using std::ostringstream;
+using std::pair;
 using std::queue;
 using std::set;
+using std::shared_ptr;
 using std::unordered_map;
 using std::unordered_set;
 using std::vector;
-using std::ostream;
-using std::ostringstream;
-using std::endl;
-using std::pair;
-using std::make_pair;
 
 namespace dreal {
 ostream & operator<<(ostream & out, contractor_cell const & c) {
@@ -70,13 +75,8 @@ contractor_seq::contractor_seq(initializer_list<contractor> const & l)
 contractor_seq::contractor_seq(vector<contractor> const & v)
     : contractor_cell(contractor_kind::SEQ), m_vec(v) {
 }
-contractor_seq::contractor_seq(contractor const & c, vector<contractor> const & v)
-    : contractor_cell(contractor_kind::SEQ), m_vec(1, c) {
-    copy(v.begin(), v.end(), back_inserter(m_vec));
-}
-contractor_seq::contractor_seq(contractor const & c1, vector<contractor> const & v, contractor const & c2)
+contractor_seq::contractor_seq(contractor const & c1, contractor const & c2)
     : contractor_cell(contractor_kind::SEQ), m_vec(1, c1) {
-    copy(v.begin(), v.end(), back_inserter(m_vec));
     m_vec.push_back(c2);
 }
 
@@ -84,11 +84,13 @@ void contractor_seq::prune(fbbox & b, SMTConfig & config) const {
     DREAL_LOG_DEBUG << "contractor_seq::prune";
     m_input  = ibex::BitSet::empty(b.front().size()); //TODO avoid creation of new sets
     m_output = ibex::BitSet::empty(b.front().size()); //TODO avoid creation of new sets
+    m_used_constraints.clear();
     for (contractor const & c : m_vec) {
+        interruption_point();
         c.prune(b, config);
         m_input.union_with(c.input());
         m_output.union_with(c.output());
-        unordered_set<constraint const *> const & used_ctrs = c.used_constraints();
+        unordered_set<shared_ptr<constraint>> const & used_ctrs = c.used_constraints();
         m_used_constraints.insert(used_ctrs.begin(), used_ctrs.end());
         if (b.front().is_empty()) {
             return;
@@ -109,7 +111,7 @@ contractor_try::contractor_try(contractor const & c)
     : contractor_cell(contractor_kind::TRY), m_c(c) { }
 void contractor_try::prune(fbbox & b, SMTConfig & config) const {
     DREAL_LOG_DEBUG << "contractor_try::prune: ";
-    static box old_box(b.front());
+    thread_local static box old_box(b.front());
     old_box = b.front();
     try {
         m_c.prune(b, config);
@@ -121,7 +123,7 @@ void contractor_try::prune(fbbox & b, SMTConfig & config) const {
     }
     m_input  = m_c.input();
     m_output = m_c.output();
-    unordered_set<constraint const *> const & used_ctrs = m_c.used_constraints();
+    unordered_set<shared_ptr<constraint>> const & used_ctrs = m_c.used_constraints();
     m_used_constraints.insert(used_ctrs.begin(), used_ctrs.end());
 }
 ostream & contractor_try::display(ostream & out) const {
@@ -134,7 +136,7 @@ contractor_try_or::contractor_try_or(contractor const & c1, contractor const & c
     : contractor_cell(contractor_kind::TRY_OR), m_c1(c1), m_c2(c2) { }
 void contractor_try_or::prune(fbbox & b, SMTConfig & config) const {
     DREAL_LOG_DEBUG << "contractor_try_or::prune";
-    static box old_box(b.front());
+    thread_local static box old_box(b.front());
     old_box = b.front();
     contractor const * ctc = &m_c1;
     try {
@@ -146,13 +148,35 @@ void contractor_try_or::prune(fbbox & b, SMTConfig & config) const {
     }
     m_input  = ctc->input();
     m_output = ctc->output();
-    unordered_set<constraint const *> const & used_ctrs = ctc->used_constraints();
+    unordered_set<shared_ptr<constraint>> const & used_ctrs = ctc->used_constraints();
     m_used_constraints.insert(used_ctrs.begin(), used_ctrs.end());
 }
 ostream & contractor_try_or::display(ostream & out) const {
     out << "contractor_try_or("
         << m_c1 << ", "
         << m_c2 << ")";
+    return out;
+}
+
+contractor_throw_if_empty::contractor_throw_if_empty(contractor const & c)
+    : contractor_cell(contractor_kind::THROW_IF_EMPTY), m_c(c) { }
+void contractor_throw_if_empty::prune(fbbox & b, SMTConfig & config) const {
+    DREAL_LOG_DEBUG << "contractor_throw_if_empty::prune";
+    thread_local static box old_box(b.front());
+    old_box = b.front();
+    m_c.prune(b, config);
+    if (b.front().is_empty()) {
+        b.front() = old_box;
+        m_input  = m_c.input();
+        m_output = m_c.output();
+        throw contractor_exception("throw if empty");
+    } else {
+        // TODO(soonhok): set m_input and m_output
+        return;
+    }
+}
+ostream & contractor_throw_if_empty::display(ostream & out) const {
+    out << "contractor_throw_if_empty(" << m_c << ")";
     return out;
 }
 
@@ -169,8 +193,8 @@ void contractor_join::prune(fbbox & b, SMTConfig & config) const {
     m_c2.prune(b, config);
     m_input  = m_c1.input();
     m_input.union_with(m_c2.input());
-    unordered_set<constraint const *> const & used_ctrs1 = m_c1.used_constraints();
-    unordered_set<constraint const *> const & used_ctrs2 = m_c2.used_constraints();
+    unordered_set<shared_ptr<constraint>> const & used_ctrs1 = m_c1.used_constraints();
+    unordered_set<shared_ptr<constraint>> const & used_ctrs2 = m_c2.used_constraints();
     m_used_constraints.insert(used_ctrs1.begin(), used_ctrs1.end());
     m_used_constraints.insert(used_ctrs2.begin(), used_ctrs2.end());
     b.front().hull(b1);
@@ -193,7 +217,7 @@ void contractor_ite::prune(fbbox & b, SMTConfig & config) const {
     ctc->prune(b, config);
     m_input  = ctc->input();
     m_output = ctc->output();
-    unordered_set<constraint const *> const & used_ctrs = ctc->used_constraints();
+    unordered_set<shared_ptr<constraint>> const & used_ctrs = ctc->used_constraints();
     m_used_constraints.insert(used_ctrs.begin(), used_ctrs.end());
 }
 ostream & contractor_ite::display(ostream & out) const {
@@ -212,7 +236,7 @@ contractor_fixpoint::contractor_fixpoint(function<bool(box const &, box const &)
 contractor_fixpoint::contractor_fixpoint(function<bool(box const &, box const &)> term_cond, initializer_list<vector<contractor>> const & cvec_list)
     : contractor_cell(contractor_kind::FP), m_term_cond(term_cond), m_clist() {
     for (auto const & cvec : cvec_list) {
-        copy(cvec.begin(), cvec.end(), back_inserter(m_clist));
+        m_clist.insert(m_clist.end(), cvec.begin(), cvec.end());
     }
 }
 
@@ -237,27 +261,29 @@ ostream & contractor_fixpoint::display(ostream & out) const {
 }
 
 void contractor_fixpoint::naive_fixpoint_alg(fbbox & b, SMTConfig & config) const {
-    static box old_box(b.front());
+    thread_local static box old_box(b.front());
     m_input  = ibex::BitSet::empty(b.front().size());
     m_output = ibex::BitSet::empty(b.front().size());
     // Fixed Point Loop
     do {
+        interruption_point();
         old_box = b.front();
         for (contractor const & c : m_clist) {
             c.prune(b, config);
             m_input.union_with(c.input());
             m_output.union_with(c.output());
-            unordered_set<constraint const *> const & used_constraints = c.used_constraints();
+            unordered_set<shared_ptr<constraint>> const & used_constraints = c.used_constraints();
             m_used_constraints.insert(used_constraints.begin(), used_constraints.end());
             if (b.front().is_empty()) {
                 return;
             }
         }
-    } while (!m_term_cond(old_box, b.front()));
+    } while (b.front().max_diam() > config.nra_precision && !m_term_cond(old_box, b.front()));
+    return;
 }
 
 void contractor_fixpoint::worklist_fixpoint_alg(fbbox & b, SMTConfig & config) const {
-    static box old_box(b.front());
+    thread_local static box old_box(b.front());
     m_input  = ibex::BitSet::empty(b.front().size());
     m_output = ibex::BitSet::empty(b.front().size());
 
@@ -275,13 +301,14 @@ void contractor_fixpoint::worklist_fixpoint_alg(fbbox & b, SMTConfig & config) c
 
     // Fixed Point Loop
     do {
+        interruption_point();
         old_box = b.front();
         contractor const & c = q.front();
         c.prune(b, config);
         count++;
         m_input.union_with(c.input());
         m_output.union_with(c.output());
-        unordered_set<constraint const *> const & used_constraints = c.used_constraints();
+        unordered_set<shared_ptr<constraint>> const & used_constraints = c.used_constraints();
         m_used_constraints.insert(used_constraints.begin(), used_constraints.end());
         if (b.front().is_empty()) {
             return;
@@ -303,7 +330,8 @@ void contractor_fixpoint::worklist_fixpoint_alg(fbbox & b, SMTConfig & config) c
                 }
             }
         }
-    } while (q.size() > 0 && ((count < num_initial_ctcs) || !m_term_cond(old_box, b.front())));
+    } while (b.front().max_diam() > config.nra_precision && q.size() > 0 && ((count < num_initial_ctcs) || !m_term_cond(old_box, b.front())));
+    return;
 }
 
 
@@ -348,12 +376,12 @@ ostream & contractor_int::display(ostream & out) const {
     return out;
 }
 
-contractor_eval::contractor_eval(box const & box, nonlinear_constraint const * const ctr)
+contractor_eval::contractor_eval(shared_ptr<nonlinear_constraint> const ctr)
     : contractor_cell(contractor_kind::EVAL), m_nl_ctr(ctr) {
     // // Set up input
     auto const & var_array = m_nl_ctr->get_var_array();
     for (int i = 0; i < var_array.size(); i++) {
-        m_input.add(box.get_index(var_array[i].name));
+        m_input.add(i);
     }
 }
 
@@ -419,7 +447,7 @@ ostream & contractor_cache::display(ostream & out) const {
     return out;
 }
 
-contractor_sample::contractor_sample(unsigned const n, vector<constraint *> const & ctrs)
+contractor_sample::contractor_sample(unsigned const n, vector<shared_ptr<constraint>> const & ctrs)
     : contractor_cell(contractor_kind::SAMPLE), m_num_samples(n), m_ctrs(ctrs) {
 }
 
@@ -433,11 +461,12 @@ void contractor_sample::prune(fbbox & b, SMTConfig &) const {
     // If ∃p. ∀c. eval(c, p) = true, return 'SAT'
     unsigned count = 0;
     for (box const & p : points) {
+        interruption_point();
         DREAL_LOG_DEBUG << "contractor_sample::prune -- sample " << ++count << "th point = " << p;
         bool check = true;
-        for (constraint * const ctr : m_ctrs) {
+        for (shared_ptr<constraint> const ctr : m_ctrs) {
             if (ctr->get_type() == constraint_type::Nonlinear) {
-                nonlinear_constraint const * const nl_ctr = dynamic_cast<nonlinear_constraint *>(ctr);
+                auto const nl_ctr = dynamic_pointer_cast<nonlinear_constraint>(ctr);
                 pair<lbool, ibex::Interval> eval_result = nl_ctr->eval(p);
                 if (eval_result.first == l_False) {
                     check = false;
@@ -460,7 +489,7 @@ ostream & contractor_sample::display(ostream & out) const {
     return out;
 }
 
-contractor_aggressive::contractor_aggressive(unsigned const n, vector<constraint *> const & ctrs)
+contractor_aggressive::contractor_aggressive(unsigned const n, vector<shared_ptr<constraint>> const & ctrs)
     : contractor_cell(contractor_kind::SAMPLE), m_num_samples(n), m_ctrs(ctrs) {
 }
 
@@ -472,9 +501,10 @@ void contractor_aggressive::prune(fbbox & b, SMTConfig &) const {
     // Sample n points
     set<box> points = b.front().sample_points(m_num_samples);
     // ∃c. ∀p. eval(c, p) = false   ===>  UNSAT
-    for (constraint * const ctr : m_ctrs) {
+    for (shared_ptr<constraint> const ctr : m_ctrs) {
+        interruption_point();
         if (ctr->get_type() == constraint_type::Nonlinear) {
-            nonlinear_constraint const * const nl_ctr = dynamic_cast<nonlinear_constraint *>(ctr);
+            auto const nl_ctr = dynamic_pointer_cast<nonlinear_constraint>(ctr);
             bool check = false;
             for (box const & p : points) {
                 pair<lbool, ibex::Interval> eval_result = nl_ctr->eval(p);
@@ -507,17 +537,20 @@ contractor mk_contractor_seq(initializer_list<contractor> const & l) {
 contractor mk_contractor_seq(vector<contractor> const & v) {
     return contractor(make_shared<contractor_seq>(v));
 }
-contractor mk_contractor_seq(contractor const & c, vector<contractor> const & v) {
-    return contractor(make_shared<contractor_seq>(c, v));
-}
-contractor mk_contractor_seq(contractor const & c1, vector<contractor> const & v, contractor const & c2) {
-    return contractor(make_shared<contractor_seq>(c1, v, c2));
+contractor mk_contractor_seq(contractor const & c1, contractor const & c2) {
+    return contractor(make_shared<contractor_seq>(c1, c2));
 }
 contractor mk_contractor_try(contractor const & c) {
     return contractor(make_shared<contractor_try>(c));
 }
 contractor mk_contractor_try_or(contractor const & c1, contractor const & c2) {
     return contractor(make_shared<contractor_try_or>(c1, c2));
+}
+contractor mk_contractor_throw() {
+    return contractor(make_shared<contractor_throw>());
+}
+contractor mk_contractor_throw_if_empty(contractor const & c) {
+    return contractor(make_shared<contractor_throw_if_empty>(c));
 }
 contractor mk_contractor_join(contractor const & c1, contractor const & c2) {
     return contractor(make_shared<contractor_join>(c1, c2));
@@ -540,17 +573,24 @@ contractor mk_contractor_fixpoint(function<bool(box const &, box const &)> guard
 contractor mk_contractor_int() {
     return contractor(make_shared<contractor_int>());
 }
-contractor mk_contractor_eval(box const & box, nonlinear_constraint const * const ctr) {
-    contractor ctc(make_shared<contractor_eval>(box, ctr));
-    return ctc;
+contractor mk_contractor_eval(shared_ptr<nonlinear_constraint> const ctr) {
+    static unordered_map<shared_ptr<nonlinear_constraint>, contractor> eval_ctc_cache;
+    auto const it = eval_ctc_cache.find(ctr);
+    if (it == eval_ctc_cache.end()) {
+        contractor ctc(make_shared<contractor_eval>(ctr));
+        eval_ctc_cache.emplace(ctr, ctc);
+        return ctc;
+    } else {
+        return it->second;
+    }
 }
 contractor mk_contractor_cache(contractor const & ctc) {
     return contractor(make_shared<contractor_cache>(ctc));
 }
-contractor mk_contractor_sample(unsigned const n, vector<constraint *> const & ctrs) {
+contractor mk_contractor_sample(unsigned const n, vector<shared_ptr<constraint>> const & ctrs) {
     return contractor(make_shared<contractor_sample>(n, ctrs));
 }
-contractor mk_contractor_aggressive(unsigned const n, vector<constraint *> const & ctrs) {
+contractor mk_contractor_aggressive(unsigned const n, vector<shared_ptr<constraint>> const & ctrs) {
     return contractor(make_shared<contractor_aggressive>(n, ctrs));
 }
 ostream & operator<<(ostream & out, contractor const & c) {
@@ -558,4 +598,23 @@ ostream & operator<<(ostream & out, contractor const & c) {
     return out;
 }
 
+void contractor::prune_with_assert(box & b, SMTConfig & config) const {
+    assert(m_ptr != nullptr);
+    thread_local static box old_box(b);
+    old_box = b;
+    m_ptr->prune(b, config);
+    if (!b.is_subset(old_box)) {
+        cerr << "Pruning Violation: " << (*m_ptr) << endl;
+        cerr << "Old Box" << endl
+             << "==============" << endl
+             << old_box << endl;
+        cerr << "New Box" << endl
+             << "==============" << endl
+             << b << endl;
+        cerr << "==============" << endl;
+        display_diff(cerr, old_box, b);
+        cerr << "==============" << endl;
+        exit(1);
+    }
+}
 }  // namespace dreal
