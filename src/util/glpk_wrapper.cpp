@@ -20,6 +20,7 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include <cstdio>
 #include <cassert>
 #include <exception>
+#include <math.h>
 #include "./config.h"
 #include "opensmt/common/LA.h"
 #include "util/glpk_wrapper.h"
@@ -31,12 +32,12 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 namespace dreal {
 
 glpk_wrapper::glpk_wrapper(box const & b)
-    : domain(b), lp(glp_create_prob()), simplex(true) {
+    : domain(b), lp(glp_create_prob()), solver_type(SIMPLEX) {
     init_problem();
 }
 
 glpk_wrapper::glpk_wrapper(box const & b, std::unordered_set<Enode *> const & es)
-    : domain(b), lp(glp_create_prob()), simplex(true) {
+    : domain(b), lp(glp_create_prob()), solver_type(SIMPLEX) {
     init_problem();
     add(es);
 }
@@ -137,13 +138,18 @@ void glpk_wrapper::add(std::unordered_set<Enode *> const & es) {
 }
 
 bool glpk_wrapper::is_sat() {
-    if (simplex) {
+    if (solver_type == SIMPLEX || solver_type == EXACT) {
         int status = glp_get_status(lp);
         if (status == GLP_UNDEF) {
             glp_smcp parm;
             glp_init_smcp(&parm);
             parm.msg_lev = GLP_MSG_OFF;
+            // always try first the normal simple (get close to an optimal solution in double precision)
             int solved = glp_simplex(lp, &parm);
+            // TODO(dzufferey) should we start if the normal simplex failed ?
+            if (solver_type == EXACT) {
+                solved = glp_exact(lp, &parm);
+            }
             if (solved != 0) {
                 throw std::runtime_error("GLPK simplex failed");
             }
@@ -151,6 +157,7 @@ bool glpk_wrapper::is_sat() {
         }
         return (status == GLP_OPT || status == GLP_FEAS || status == GLP_UNBND);
     } else {
+        assert(solver_type == INTERIOR);
         int status = glp_ipt_status(lp);
         if (status == GLP_UNDEF) {
             glp_iptcp parm;
@@ -169,9 +176,10 @@ bool glpk_wrapper::is_sat() {
 void glpk_wrapper::get_solution(box & b) {
     assert(is_sat());
     for (unsigned int i = 0; i < b.size(); i++) {
-        if (simplex) {
+        if (solver_type == SIMPLEX || solver_type == EXACT) {
             b[i] = glp_get_col_prim(lp, i+1);
         } else {
+            assert(solver_type == INTERIOR);
             b[i] = glp_ipt_col_prim(lp, i+1);
         }
     }
@@ -179,9 +187,10 @@ void glpk_wrapper::get_solution(box & b) {
 
 double glpk_wrapper::get_objective() {
     assert(is_sat());
-    if (simplex) {
+    if (solver_type == SIMPLEX || solver_type == EXACT) {
         return glp_get_obj_val(lp);
     } else {
+        assert(solver_type == INTERIOR);
         return glp_ipt_obj_val(lp);
     }
 }
@@ -206,12 +215,200 @@ void glpk_wrapper::set_maximize() {
     glp_set_obj_dir(lp, GLP_MAX);
 }
 
+double glpk_wrapper::get_row_value(int i) {
+    double cstr_value = 0;
+    if (solver_type ==  SIMPLEX || solver_type == EXACT) {
+        int csrt_status = glp_get_row_stat(lp, i);
+        if (cstr_status == GLP_BS) { // basic variable;
+            cstr_status = glp_get_row_prim(lp, i); // or glp_get_row_dual
+        } else if (cstr_status == GLP_NL || cstr_status == GLP_NS) { // non-basic variable on its lower bound, non-basic fixed variable.
+            cstr_value = glp_get_row_lb(lp, i);
+        } else if (cstr_status == GLP_NU) { //  non-basic variable on its upper bound
+            cstr_value = glp_get_row_up(lp, i);
+        }
+        // TODO(dzufferey) should we do something for GLP_NF — non-basic free (unbounded) variable;
+    } else {
+        cstr_value = glp_ipt_row_prim(lp, i); // or glp_ipt_row_dual
+    }
+    return cstr_value;
+}
+
+bool glpk_wrapper::get_farkas_separation_plane(double * plane, double * constant) {
+    // check that we can build a Farkas proof
+    int status = 0;
+    if (solver_type == SIMPLEX || solver_type == EXACT) {
+        status = glp_get_status(lp);
+    } else {
+        status = glp_ipt_status(lp);
+    }
+    if (status != GLP_ENOFEAS) {
+        return false;
+    }
+
+    int n = domain.size();
+    // Farkas proof
+    // assume plane.length = size
+    *constant = 0;
+
+    // a sparse vector for the y vector
+    int j = 1;
+    int row_idx = new int[size + 1];
+    double row_coeff = new double[size + 1];
+
+    int m = glp_get_num_rows(lp);
+    int structural_offset = m + 1;
+    for (int i = 1; i <= m ; ++i ) {
+        // get the value of the constraint
+        double cstr_value = get_row_value(i);
+        // get the type of constraint
+        int cstr_type = glp_get_row_type(lp, i); //GLP_FR/LO/UP/DB/FX
+        double direction = 0.0; // GLP_FR
+        double lb = glp_get_row_lb(lp, i);
+        double ub = glp_get_row_up(lp, i);
+        if ((cstr_type == GLP_LO || cstr_type == GLP_DB || cstr_type == GLP_FX)
+            && cstr_value < lb) {
+            row_coeff[j] = -cstr_value;
+            row_idx[j] = structural_offset + i;
+            j += 1;
+            *constant -= cstr_value * lb;
+        } else if ((cstr_type == GLP_UP || cstr_type == GLP_DB || cstr_type == GLP_FX)
+            && cstr_value > ub) {
+            row_coeff[row_idx] = cstr_value;
+            row_idx[j] = structural_offset + i;
+            j += 1;
+            *contant += cstr_value * lb;
+        }
+    }
+
+    for (int i = 0; i < n; i++) {
+        plane[i] = 0;
+    }
+    j = glp_transform_row(lp, j, row_idx, row_coeff);
+    for (int i = 1; i <= j; i++) {
+        plane[row_idx[j] - structural_offset] = row_coeff[j];
+    }
+
+    delete row_idx;
+    delete row_coeff;
+
+    return true;
+}
+
+void glpk_wrapper::get_error_bounds(double * errors) {
+
+    int n = domain.size();
+    int * nbr_non_zero = new int[n];
+    for (int i = 0; i < n; i++) {
+        errors[i] = INFINITY;
+        nbr_non_zero[i] = 0;
+    }
+
+    // get the error on the KKT condition
+    int sol;
+    if (solver_type == SIMPLEX || solver_type == EXACT) {
+        sol = GLP_SOL;
+    } else {
+        sol = GLP_IPT;
+    }
+
+    double ae_max;  // largest absolute error
+    int ae_ind;     // number of row (PE), column (DE), or variable (PB, DB) with the largest absolute error
+    double re_max;  // largest relative error
+    int re_ind;     // number of row (PE), column (DE), or variable (PB, DB) with the largest relative error
+
+    // GLP_KKT_PE — check primal equality constraints
+    // GLP_KKT_PB — check primal bound constraints
+    // GLP_KKT_DE — check dual equality constraints
+    // GLP_KKT_DB — check dual bound constraints
+    glp_check_kkt(lp, sol, GLP_KKT_PE, &ae_max, &ae_ind, &re_max, &re_ind);
+
+    // a sparse vector for the coeffs in the row
+    int row_size = 1;
+    int row_idx = new int[size + 1];
+    double row_coeff = new double[size + 1];
+
+    // PE
+    //  gives the distance between the auxiliary var and A * strucutral variable
+    int m = glp_get_num_rows(lp);
+    for (int i = 1; i <= m ; ++i) {
+        // get the coeffs for that constraint
+        row_size = glp_get_mat_row(lp, i, row_idx, row_coeff);
+        for (int j = 1; j <= row_size; j++) {
+            int v = row_idx[j] - 1; // GLPK indexing
+            nbr_non_zero[v] += 1;
+            int c = row_coeff[j];
+            // relative error
+            error[v] = min(error[v], get_row_value(i) * re_max / c);
+            // absolute error
+            error[v] = min(error[v], ae_max / c);
+        }
+    }
+
+    // variables that don't matter
+    for (int i = 0; i < n; i++) {
+        if (nbr_non_zero[i] == 0) {
+            error[i] = 0;
+        }
+    }
+
+    // TODO(dzufferey) Do we need PB ?
+    //  gives how much over/under is a variable from its bound
+    //  -> auxiliary variable: 1 ≤ k ≤ m
+    //  -> structural variable: m + 1 ≤ k ≤ m + n
+
+    delete row_idx;
+    delete row_coeff;
+}
+
+bool glpk_wrapper::certify_unsat(double precision) {
+
+    // get a Farkas separation plane
+    int size = domain.size();
+    double separation_plane = new double[size];
+    double separation_cst = 0;
+    if (!get_farkas_separation_plane(plane, &separation_cst)) {
+        return false;
+    }
+
+    // get the error per variable
+    double error = new double[size];
+    get_error_bounds(error);
+
+    // we need to check the distance between the plane B, the cone A and the vector y.
+    // 1. the plane b and the vector y: just plug y in the equations of b
+    // 2. between A and y: it must be 0 be because origin (so we can ignore that part)
+    double distance_to_plane = 0;
+    double plane_eq_norm = 0;
+    double error_influence = 0;
+    for (int i = 0; i < size; i++) {
+        double x_i = 0;
+        if (solver_type == SIMPLEX || solver_type == EXACT) {
+            x_i = glp_get_col_prim(lp, i);
+        } else {
+            x_i = glp_ipt_col_prim(lp, i);
+        }
+        distance_to_plane += separation_plane[i] * x_i;
+        plane_eq_norm += separation_plane[i] * separation_plane[i];
+        error_influence += error[i] * x_i;
+    }
+    distance_to_plane /= sqrt(plane_eq_norm);
+
+    delete separation_plane;
+    delete error;
+
+    return distance_to_plane > error_influence;
+}
+
 void glpk_wrapper::use_simplex() {
-    simplex = true;
+    solver_type = SIMPLEX;
 }
 
 void glpk_wrapper::use_interior_point() {
-    simplex = false;
+    solver_type = INTERIOR;
+}
+
+void glpk_wrapper::use_exact() {
+    solver_type = EXACT;
 }
 
 int glpk_wrapper::print_to_file(const char *fname) {
