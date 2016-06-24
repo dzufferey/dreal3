@@ -82,6 +82,12 @@ void glpk_wrapper::set_constraint(int index, Enode * const e) {
     glp_set_mat_row(lp, index, i-1, indices, values);
     delete[] indices;
     delete[] values;
+    // name the constraints (helps debugging)
+    if (DREAL_LOG_INFO_IS_ON) {
+      std::ostringstream stream;
+      stream << e;
+      glp_set_row_name(lp, index, stream.str().c_str());
+    }
 }
 
 void glpk_wrapper::init_problem() {
@@ -89,6 +95,12 @@ void glpk_wrapper::init_problem() {
     glp_set_obj_dir(lp, GLP_MIN);
     // create as many col as dimension in b
     glp_add_cols(lp, domain.size());
+    // name the variables (helps debugging)
+    if (DREAL_LOG_INFO_IS_ON) {
+      for (unsigned int i = 0; i < domain.size(); i++) {
+          glp_set_col_name(lp, i+1, domain.get_name(i).c_str());
+      }
+    }
     //
     set_domain(domain);
 }
@@ -233,6 +245,33 @@ double glpk_wrapper::get_row_value(int i) {
     return cstr_value;
 }
 
+bool glpk_wrapper::check_unsat_error_kkt(double precision) {
+    double ae_max_1;  // largest absolute error
+    int ae_ind_1;     // number of row the largest absolute error
+    double re_max_1;  // largest relative error
+    int re_ind_1;     // number of row with the largest relative error
+
+    double ae_max_2;  // largest absolute error
+    int ae_ind_2;     // variable with the largest absolute error
+    double re_max_2;  // largest relative error
+    int re_ind_2;     // variable with the largest relative error
+
+    int sol;
+    if (solver_type == SIMPLEX || solver_type == EXACT) {
+        sol = GLP_SOL;
+    } else {
+        sol = GLP_IPT;
+    }
+
+    // check primal equality constraints
+    glp_check_kkt(lp, sol, GLP_KKT_PE, &ae_max_1, &ae_ind_1, &re_max_1, &re_ind_1);
+
+    // check primal bound constraints
+    glp_check_kkt(lp, sol, GLP_KKT_PB, &ae_max_2, &ae_ind_2, &re_max_2, &re_ind_2);
+
+    return ae_max_1 < precision && ae_max_1 < ae_max_2 - precision;
+}
+
 bool glpk_wrapper::get_farkas_separation_plane(double * plane, double * constant) {
     // check that we can build a Farkas proof
     int status = 0;
@@ -241,9 +280,31 @@ bool glpk_wrapper::get_farkas_separation_plane(double * plane, double * constant
     } else {
         status = glp_ipt_status(lp);
     }
-    if (status != GLP_ENOFEAS) {
+    if (status != GLP_NOFEAS) {
+        switch (status)
+        {
+            case GLP_OPT:
+                DREAL_LOG_INFO << "glpk_wrapper::get_farkas_separation_plane: GLP_OPT";
+                break;
+            case GLP_FEAS:
+                DREAL_LOG_INFO << "glpk_wrapper::get_farkas_separation_plane: GLP_FEAS";
+                break;
+            case GLP_INFEAS:
+                DREAL_LOG_INFO << "glpk_wrapper::get_farkas_separation_plane: GLP_INFEAS";
+                break;
+            case GLP_UNBND:
+                DREAL_LOG_INFO << "glpk_wrapper::get_farkas_separation_plane: GLP_UNBND";
+                break;
+            case GLP_UNDEF:
+                DREAL_LOG_INFO << "glpk_wrapper::get_farkas_separation_plane: GLP_UNDEF";
+                break;
+            default:
+                DREAL_LOG_INFO << "glpk_wrapper::get_farkas_separation_plane: ???";
+        }
         return false;
     }
+
+    glp_print_sol(lp, "/dev/stdout");
 
     int n = domain.size();
     // Farkas proof
@@ -251,12 +312,11 @@ bool glpk_wrapper::get_farkas_separation_plane(double * plane, double * constant
     *constant = 0;
 
     // a sparse vector for the y vector
-    int j = 1;
+    int j = 0;
     int * row_idx = new int[n + 1];
     double * row_coeff = new double[n + 1];
 
     int m = glp_get_num_rows(lp);
-    int structural_offset = m + 1;
     for (int i = 1; i <= m ; ++i ) {
         // get the value of the constraint
         double cstr_value = get_row_value(i);
@@ -265,30 +325,44 @@ bool glpk_wrapper::get_farkas_separation_plane(double * plane, double * constant
         double lb = glp_get_row_lb(lp, i);
         double ub = glp_get_row_ub(lp, i);
         if ((cstr_type == GLP_LO || cstr_type == GLP_DB || cstr_type == GLP_FX)
-            && cstr_value < lb) {
-            row_coeff[j] = -cstr_value;
-            row_idx[j] = structural_offset + i;
+            && cstr_value < lb && cstr_value != 0.0) {
             j += 1;
+            row_coeff[j] = -cstr_value;
+            row_idx[j] = i;
+            DREAL_LOG_INFO << "glpk_wrapper::get_farkas_separation_plane: row " << i << " has coeff " << (-cstr_value);
             *constant -= cstr_value * lb;
         } else if ((cstr_type == GLP_UP || cstr_type == GLP_DB || cstr_type == GLP_FX)
-            && cstr_value > ub) {
-            row_coeff[j] = cstr_value;
-            row_idx[j] = structural_offset + i;
+            && cstr_value > ub && cstr_value != 0.0) {
             j += 1;
+            row_coeff[j] = cstr_value;
+            row_idx[j] = i;
+            DREAL_LOG_INFO << "glpk_wrapper::get_farkas_separation_plane: row " << i << " has coeff " << cstr_value;
             *constant += cstr_value * lb;
-        } // else GLP_FR
+        } else {
+            DREAL_LOG_INFO << "glpk_wrapper::get_farkas_separation_plane: row " << i << " has coeff 0";
+        }
+    }
+
+    if (j > 1) {
+        j = glp_transform_row(lp, j, row_idx, row_coeff);
     }
 
     for (int i = 0; i < n; i++) {
         plane[i] = 0;
     }
-    j = glp_transform_row(lp, j, row_idx, row_coeff);
+    int structural_offset = m + 1;
     for (int i = 1; i <= j; i++) {
         plane[row_idx[j] - structural_offset] = row_coeff[j];
     }
 
     delete[] row_idx;
     delete[] row_coeff;
+
+    DREAL_LOG_INFO << "glpk_wrapper::get_farkas_separation_plane: ";
+    for (int i = 0; i < n; i++) {
+        DREAL_LOG_INFO << plane[i] << " * " << domain.get_name(i);
+    }
+    DREAL_LOG_INFO << " - " << (*constant) << " = 0";
 
     return true;
 }
@@ -348,6 +422,7 @@ void glpk_wrapper::get_error_bounds(double * errors) {
         if (nbr_non_zero[i] == 0) {
             errors[i] = 0;
         }
+        DREAL_LOG_INFO << "glpk_wrapper::get_error_bounds: error for " << domain.get_name(i) << " is " << errors[i];
     }
 
     // TODO(dzufferey) Do we need PB ?
@@ -361,6 +436,12 @@ void glpk_wrapper::get_error_bounds(double * errors) {
 }
 
 bool glpk_wrapper::certify_unsat(double precision) {
+
+//  XXX
+//  // cheaper check using on the the KKT conditions
+//  if (check_unsat_error_kkt(precision)) {
+//      return true;
+//  }
 
     // get a Farkas separation plane
     int size = domain.size();
@@ -383,9 +464,9 @@ bool glpk_wrapper::certify_unsat(double precision) {
     for (int i = 0; i < size; i++) {
         double x_i = 0;
         if (solver_type == SIMPLEX || solver_type == EXACT) {
-            x_i = glp_get_col_prim(lp, i);
+            x_i = glp_get_col_prim(lp, i+1);
         } else {
-            x_i = glp_ipt_col_prim(lp, i);
+            x_i = glp_ipt_col_prim(lp, i+1);
         }
         distance_to_plane += separation_plane[i] * x_i;
         plane_eq_norm += separation_plane[i] * separation_plane[i];
@@ -396,6 +477,7 @@ bool glpk_wrapper::certify_unsat(double precision) {
     delete[] separation_plane;
     delete[] error;
 
+    DREAL_LOG_INFO << "glpk_wrapper::certify_unsat: distance_to_plane is " << distance_to_plane << " and error_influence is " << error_influence;
     return distance_to_plane > error_influence;
 }
 

@@ -60,9 +60,11 @@ bool lp_icp::is_lp_sat(glpk_wrapper & lp_solver, box & solution, SMTConfig const
       lp_solver.use_exact();
       if (!lp_solver.is_sat()) {
         DREAL_LOG_INFO << "lp_icp: LP say unsat (using exact solver)";
+        lp_solver.use_simplex();
         return false;
       } else {
         lp_solver.get_solution(solution);
+        lp_solver.use_simplex();
         return true;
       }
     }

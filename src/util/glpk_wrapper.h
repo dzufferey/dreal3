@@ -53,6 +53,8 @@ private:
 
     double get_row_value(int row);
 
+    bool check_unsat_error_kkt(double precision);
+
 public:
     explicit glpk_wrapper(box const & b);
     glpk_wrapper(box const & b, std::unordered_set<Enode *> const & es);
