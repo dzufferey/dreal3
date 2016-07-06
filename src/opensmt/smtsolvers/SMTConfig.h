@@ -241,6 +241,7 @@ struct SMTConfig
   int  icp_decisions() { return nra_icp_decisions; }
 #ifdef USE_GLPK
   bool         nra_lp;                        // use a combination of ICP and LP
+  bool         nra_rr;                        // FIXME
   bool         nra_linear_only;               // use glpk on linear only problems
 #endif
 

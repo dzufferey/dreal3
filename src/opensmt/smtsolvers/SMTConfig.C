@@ -161,6 +161,7 @@ SMTConfig::initializeConfig( )
   nra_lp                       = false;
   nra_linear_only              = false;
 #endif
+  nra_rr                       = false;
   initLogging();
 }
 
@@ -543,6 +544,9 @@ SMTConfig::parseCMDLine( int argc
             "use a combination of ICP and LP",
             "--lp-icp");
     opt.add("", false, 0, 0,
+            "FIXME",
+            "--rr-icp");
+    opt.add("", false, 0, 0,
             "read formula from standard input",
             "--in");
     opt.add("", false, 1, 0,
@@ -623,6 +627,7 @@ SMTConfig::parseCMDLine( int argc
     nra_lp                  = opt.isSet("--lp-icp");
     nra_linear_only         = opt.isSet("--linear-only");
 #endif
+    nra_rr                  = opt.isSet("--rr-icp");
 
     // Extract Double Args
     if (opt.isSet("--precision")) { opt.get("--precision")->getDouble(nra_precision); }

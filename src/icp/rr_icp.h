@@ -1,6 +1,5 @@
 /*********************************************************************
 Author: Damien Zufferey <zufferey@csail.mit.edu>
-        Soonho Kong <soonhok@cs.cmu.edu>
 
 dReal -- Copyright (C) 2013 - 2016, the dReal Team
 
@@ -21,6 +20,7 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #pragma once
 
 #include <unordered_set>
+#include <vector>
 #include "./config.h"
 #include "icp/icp.h"
 #include "icp/brancher.h"
@@ -28,24 +28,50 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include "util/scoped_vec.h"
 #include "contractor/contractor.h"
 #include "opensmt/smtsolvers/SMTConfig.h"
-#include "util/glpk_wrapper.h"
 
-#ifdef USE_GLPK
 namespace dreal {
-class lp_icp {
+class rr_icp {
 private:
     static BranchHeuristic & defaultHeuristic;
-    static void mark_basic(glpk_wrapper & lp,
-                           std::unordered_set<Enode*> es,
-                           scoped_vec<std::shared_ptr<constraint>>& constraints,
-                           std::unordered_set<std::shared_ptr<constraint>>& used_constraints);
-    static bool is_lp_sat(glpk_wrapper & lp, box & solution, SMTConfig const & config);
-    static void prune(glpk_wrapper & lp, int i, box & solution, SMTConfig const & config);
+
+    contractor & ctc;
+    contractor_status & cs;
+    BranchHeuristic & brancher;
+    scoped_vec<std::shared_ptr<constraint>> const & ctrs;
+
+    std::vector<box> solns;
+    std::vector<box> box_stack;
+
+    unsigned int size;
+    double * scores;
+    double * prune_results;
+    unsigned int * nbr_prune;
+    
+    void reset_scores();
+    void compute_scores();
+    int highest_score();
+
+    double measure(box const & o, box const & n);
+
+    void safe_prune(int idx, bool record);
+    void prune_split_fixed_point();
+
+    static int constexpr score_update_start = 10;
+    static int constexpr score_update_period = 10;
+    static double constexpr score_update_old_weight = 0.5;
+    static double constexpr progress_threshold = 0.9;
+
+    void solve();
+
 public:
-    // TODO(damien): the contractor contains both the linear and nonlinear constraints but it only needs the nonlinear ...
+
+    rr_icp(contractor & ctc, contractor_status & cs,
+           scoped_vec<std::shared_ptr<constraint>> const & ctrs,
+           BranchHeuristic & heuristic);
+    ~rr_icp();
+
     static void solve(contractor & ctc, contractor_status & cs,
-                      scoped_vec<std::shared_ptr<constraint>>& constraints,
+                      scoped_vec<std::shared_ptr<constraint>> const & ctrs,
                       BranchHeuristic & heuristic = defaultHeuristic);
 };
 }  // namespace dreal
-#endif  // #ifdef USE_GLPK
