@@ -229,6 +229,7 @@ void lp_icp::solve(contractor & ctc, contractor_status & cs,
                         // branch ...
                         int const i = sorted_dims[0];
                         prune(lp_solver, i, cs.m_box, cs.m_config);
+                        //XXX as option
                         if (!cs.m_box.is_bisectable_at(i,cs.m_config.nra_precision)) {
                             box_stack.emplace(lp_icp_kind::ICP, cs.m_box);
                         } else {

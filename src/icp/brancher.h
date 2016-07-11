@@ -28,11 +28,13 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include "util/box.h"
 #include "util/scoped_vec.h"
 
+//TODO linear combination brancher
+
 namespace dreal {
 class BranchHeuristic {
 public:
     std::vector<int> sort_branches(box const &, scoped_vec<std::shared_ptr<constraint>> const & ctrs, SMTConfig const & config, int num_try) const;
-    virtual std::vector<double> score_axes(box const & b) const = 0;
+    virtual std::vector<double> score_axes(box const & b) const = 0; //TODO allow the branching to modify the box, need the contractors
 };
 
 class SizeBrancher: public BranchHeuristic {

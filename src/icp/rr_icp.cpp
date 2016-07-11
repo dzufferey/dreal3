@@ -164,6 +164,7 @@ void rr_icp::solve() {
         safe_prune(last_split, false);
         nbr_steps++;
         if (!cs.m_box.is_empty()) {
+            //XXX recompute after backtracking ?
             if (nbr_steps % score_update_period == 0 ||
                 (nbr_steps >= 0 && nbr_steps < score_update_start)) {
                 prune_split_fixed_point();

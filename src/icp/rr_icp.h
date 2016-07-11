@@ -29,6 +29,7 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include "contractor/contractor.h"
 #include "opensmt/smtsolvers/SMTConfig.h"
 
+// can we make that fit into the BranchHeuristic
 namespace dreal {
 class rr_icp {
 private:
