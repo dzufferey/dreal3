@@ -4,6 +4,7 @@
 #include "util/proof.h"
 #include "opensmt/api/OpenSMTContext.h"
 #include "util/logging.h"
+#include "interpolation/interpolationUtils.h"
 
 extern OpenSMTContext * parser_ctx;
 
