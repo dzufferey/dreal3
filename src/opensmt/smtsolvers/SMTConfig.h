@@ -216,6 +216,7 @@ struct SMTConfig
   bool         icp_parallel;                  // explore branches in parallel in icp
   bool         nra_shrink_for_dop;            // shrink forall domain for dOp optimization
   bool         nra_interpolant;               // produce an interpolant during the icp
+  bool         nra_interpolant_fix;           // produce an interpolant during the icp (bug fix)
 
   void setODEFwdTimeout(double const ode_fwd_timeout);
   void setODEBwdTimeout(double const ode_bwd_timeout);

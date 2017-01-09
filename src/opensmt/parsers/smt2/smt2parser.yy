@@ -494,6 +494,9 @@ term: spec_const
     | '(' TK_ANNOT term attribute ')'
       {
           $3->set_attribute(new std::string($4));
+          if ($3->isNot()) {
+            $3->get1st()->set_attribute(new std::string($4));
+          }
           free($4);
           $$ = $3;
       }

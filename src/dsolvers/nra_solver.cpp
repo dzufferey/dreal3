@@ -200,19 +200,21 @@ bool nra_solver::assertLit(Enode * e, bool reason) {
     if (it != m_ctr_map.end()) {
         shared_ptr<constraint> const ctr = it->second;
         // Try to prune box using the constraint via callign simplify
-        lbool const simplify_result = simplify(e, e->getPolarity(), m_box);
-        if (simplify_result == l_True) {
-            // Box was pruned by it, and we don't need to add the constraint to the stack
-            m_used_constraint_vec.push_back(ctr);
-            if (m_box.is_empty()) {
-                explanation = generate_explanation(m_used_constraint_vec);
-                return false;
-            } else {
-                return true;
+        if (!config.nra_interpolant_fix) {
+            lbool const simplify_result = simplify(e, e->getPolarity(), m_box);
+            if (simplify_result == l_True) {
+                // Box was pruned by it, and we don't need to add the constraint to the stack
+                m_used_constraint_vec.push_back(ctr);
+                if (m_box.is_empty()) {
+                    explanation = generate_explanation(m_used_constraint_vec);
+                    return false;
+                } else {
+                    return true;
+                }
+            } else if (simplify_result == l_False) {
+                // Box was pruned by it, but we do need to add add the constraint to the stack
+                m_used_constraint_vec.push_back(ctr);
             }
-        } else if (simplify_result == l_False) {
-            // Box was pruned by it, but we do need to add add the constraint to the stack
-            m_used_constraint_vec.push_back(ctr);
         }
         m_stack.push_back(ctr);
     } else if (e->isForallT()) {

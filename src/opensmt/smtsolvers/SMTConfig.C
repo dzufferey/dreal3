@@ -140,7 +140,8 @@ SMTConfig::initializeConfig( )
   nra_worklist_fp              = false;
   icp_parallel                 = false;
   nra_shrink_for_dop           = false;
-  nra_interpolant             = false;
+  nra_interpolant              = false;
+  nra_interpolant_fix          = false;
   initLogging();
 }
 
@@ -496,6 +497,9 @@ SMTConfig::parseCMDLine( int argc
     opt.add("", false, 0, 0,
             "produce an interpolant in the ICP loop",
             "--interpolant");
+    opt.add("", false, 0, 0,
+            "produce an interpolant in the ICP loop (fix bug)",
+            "--interpolant-fix");
 
     opt.parse(argc, argv);
     opt.overview  = "dReal ";
@@ -544,7 +548,8 @@ SMTConfig::parseCMDLine( int argc
     nra_worklist_fp         = opt.isSet("--worklist-fp");
     icp_parallel            = opt.isSet("--icp-parallel");
     nra_shrink_for_dop      = opt.isSet("--shrink-for-opt");
-    nra_interpolant         = opt.isSet("--interpolant");
+    nra_interpolant         = opt.isSet("--interpolant") || opt.isSet("--interpolant-fix");
+    nra_interpolant_fix     = opt.isSet("--interpolant-fix");
 
     // Extract Double Args
     if (opt.isSet("--precision")) { opt.get("--precision")->getDouble(nra_precision); }
