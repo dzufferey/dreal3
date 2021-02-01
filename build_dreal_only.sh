@@ -7,7 +7,7 @@ echo OS:  $OS
 ########################################################################
 # Find C++11 Compiler and C Compiler
 ########################################################################
-for CXX in ccache-g++ g++-4.8 g++-4.9 ccache-clang++ clang++-3.5 clang++-3.4 clang++-3.3
+for CXX in ccache-g++ g++-10 g++-9 g++-8 ccache-clang++ clang++-11 clang++-10 clang++-9
 do
     CXX_PATHNAME=`which $CXX`
     if [ -e "${CXX_PATHNAME}" ]; then
@@ -22,7 +22,7 @@ Please install either g++ 4.8 (or newer) or clang++ 3.3 (or newer).
 EOF
     exit 1
 fi
-for CC in gcc-4.8 gcc-4.9 clang-3.5 clang-3.4 clang-3.3
+for CC in gcc-10 gcc-9 gcc-8 clang-11 clang-10 clang-9
 do
     CC_PATHNAME=`which $CC`
     if [ -e "$CC_PATHNAME" ]; then
